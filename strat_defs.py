@@ -32,23 +32,6 @@ def calculate_vwap(data):
     cumulative_price_volume = (data['Close'] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def train_rf_model(X, y):
-    """
-    Train a Random Forest model.
-    """
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-    
-    # Evaluate the model
-    y_pred = model.predict(X_test)
-    print("Accuracy:", accuracy_score(y_test, y_pred))
-    print("Classification Report:\n", classification_report(y_test,y_pred))
-    print("Confusion Matrix:\n", confusion_matrix(y_test,y_pred))
-    
-    return model
-
-# ML defs
 def calculate_technical_indicators(data):
     """
     Calculate technical indicators for the dataset.
@@ -79,6 +62,7 @@ def preprocess_data(data):
     y = data['Target']
     
     return X, y
+
 
 def backtest_strategy(data, initial_capital, strategy, **kwargs):
     """
@@ -153,12 +137,38 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data.loc[data['Close'] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy =="RandomForest":
-        model_rf = kwargs.get('model_rf')
-        # Drop rows with missing values due to rolling calculations
-        data = data.copy().dropna()
+        data = data.dropna()  # Drop rows with missing values
+
+        initial_training_period = kwargs.get('initial_training_period')
+        retrain_interval = kwargs.get('retrain_interval')
+
+        # model_params = model_params or {'n_estimators': 100, 'random_state': 42} # add option for model_params?
+        model_params =  {'n_estimators': 100, 'random_state': 42}                  # add option for model_params?
+        model = RandomForestClassifier(**model_params)                             # add option for model_params?
         
-        X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
-        data['Signal'] =  model_rf.predict(X)  # Predict buy, sell, hold signals
+        # Prepare columns
+        data['Signal'] = 0
+        data['Portfolio_Value'] = 1
+
+        for i in range(initial_training_period, len(data), retrain_interval):
+            # Train only on past data up to the current point
+            train_data = data.iloc[:i]
+            X_train = train_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            y_train = train_data['Target']
+
+            # Train the model
+            model.fit(X_train, y_train)
+
+            # Predict for the next retrain_interval days
+            prediction_end = min(i + retrain_interval, len(data))
+            test_data = data.iloc[i:prediction_end]
+            X_test = test_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
+
+    elif strategy == 'Perfection':
+        data['Signal'] = 0
+        data.loc[data['spy_next_day_change_type']=="increase", 'Signal'] = 1
+        data.loc[data['spy_next_day_change_type']=="decrease", 'Signal'] = -1
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
