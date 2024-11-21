@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split
+
 def calculate_rsi(data, window):
     """
     Calculate the Relative Strength Index (RSI).
@@ -27,6 +31,54 @@ def calculate_vwap(data):
     cumulative_volume = data['Volume'].cumsum()
     cumulative_price_volume = (data['Close'] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
+
+def train_rf_model(X, y):
+    """
+    Train a Random Forest model.
+    """
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    
+    # Evaluate the model
+    y_pred = model.predict(X_test)
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("Classification Report:\n", classification_report(y_test,y_pred))
+    print("Confusion Matrix:\n", confusion_matrix(y_test,y_pred))
+    
+    return model
+
+# ML defs
+def calculate_technical_indicators(data):
+    """
+    Calculate technical indicators for the dataset.
+    """
+    data['RSI'] = calculate_rsi(data, window=14)
+    data['MA20'] = data['Close'].rolling(window=20).mean()
+    data['MA50'] = data['Close'].rolling(window=50).mean()
+    data['Bollinger_Upper'] = data['MA20'] + 2 * data['Close'].rolling(window=20).std()
+    data['Bollinger_Lower'] = data['MA20'] - 2 * data['Close'].rolling(window=20).std()
+    data['VWAP'] = calculate_vwap(data)
+    return data
+
+def preprocess_data(data):
+    """
+    Prepare data for machine learning.
+    """
+    # Add technical indicators
+    data = calculate_technical_indicators(data)
+    
+    # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
+    data['Target'] = np.sign(data['Close'].shift(-1) - data['Close'])
+    
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna()
+    
+    # Define features and target
+    X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+    y = data['Target']
+    
+    return X, y
 
 def backtest_strategy(data, initial_capital, strategy, **kwargs):
     """
@@ -56,8 +108,6 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
     elif strategy == "SMA":   
         short_window = kwargs.get('short_window')
         long_window = kwargs.get('long_window')
-     
-        data = data.set_index('Date')
     
         # Calculate moving averages
         data['SMA_Short'] = data['Close'].rolling(window=short_window).mean()
@@ -67,28 +117,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data['Signal'] = 0
         data.loc[data['SMA_Long'] > data['SMA_Long'], 'Signal'] = 1
         data.loc[data['SMA_Short'] <= data['SMA_Long'], 'Signal'] = -1
-        
-        # Calculate daily returns
-        data['Daily_Return'] = data['Close'].pct_change()
-        
-        # Calculate portfolio value
-        data['pv_hold'] = (1 + data['Daily_Return']).cumprod() * initial_capital
-        
-        pv_strat_sma = [initial_capital]
-        prev = initial_capital
-        for i in range(1,data.shape[0]):
-            if data['Signal'][i] == -1:
-                val=prev
-                pv_strat_sma.append(val)
-            else:
-                val = prev * (1+data['Daily_Return'][i])
-                pv_strat_sma.append(val)
-                prev=val
-        
-        data['Portfolio_Value'] = pv_strat_sma
-        data = data.reset_index()
-        return data
-    
+
     elif strategy == 'RSI':
         rsi_window = kwargs.get('rsi_window')
         oversold = kwargs.get('oversold')
@@ -123,11 +152,13 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data.loc[data['Close'] > data['High_Max'], 'Signal'] = 1  # Breakout above
         data.loc[data['Close'] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
-    elif strategy == 'Perfection':
-        data['Signal'] = 0
-        data.loc[data['spy_next_day_change_type']=="increase", 'Signal'] = 1 
-        # data.loc[data['spy_next_day_change_type']=="decrease", 'Signal'] = -1  
-    # More strategies can be added similarly...
+    elif strategy =="RandomForest":
+        model_rf = kwargs.get('model_rf')
+        # Drop rows with missing values due to rolling calculations
+        data = data.copy().dropna()
+        
+        X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+        data['Signal'] =  model_rf.predict(X)  # Predict buy, sell, hold signals
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
@@ -152,35 +183,3 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
     return data
-
-# ML defs
-def calculate_technical_indicators(data):
-    """
-    Calculate technical indicators for the dataset.
-    """
-    data['RSI'] = calculate_rsi(data, window=14)
-    data['MA20'] = data['Close'].rolling(window=20).mean()
-    data['MA50'] = data['Close'].rolling(window=50).mean()
-    data['Bollinger_Upper'] = data['MA20'] + 2 * data['Close'].rolling(window=20).std()
-    data['Bollinger_Lower'] = data['MA20'] - 2 * data['Close'].rolling(window=20).std()
-    data['VWAP'] = calculate_vwap(data)
-    return data
-
-def preprocess_data(data):
-    """
-    Prepare data for machine learning.
-    """
-    # Add technical indicators
-    data = calculate_technical_indicators(data)
-    
-    # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-    data['Target'] = np.sign(data['Close'].shift(-1) - data['Close'])
-    
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna()
-    
-    # Define features and target
-    X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
-    y = data['Target']
-    
-    return X, y
