@@ -4,6 +4,10 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from xgboost import XGBRegressor
+from xgboost import XGBClassifier
+
 
 def calculate_rsi(data, window):
     """
@@ -108,7 +112,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data['Signal'] = 0
         data.loc[data['Close'] < data['Lower_Band'], 'Signal'] = 1  # Buy
         data.loc[data['Close'] > data['Upper_Band'], 'Signal'] = -1  # Sell
-
+ 
     elif strategy == 'Breakout':
         breakout_window = kwargs.get('breakout_window')
         data['High_Max'] = data['High'].rolling(window=breakout_window).max().shift(1)
@@ -130,8 +134,9 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data = data.dropna()
         
         # Define features and target
+        X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP','Open','High','Low','Close','Volume']]
         # X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP','Volume']]
-        X = data[['RSI', 'MA20', 'MA50']]
+        # X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
         y = data['Target']
 
         # model_params = model_params or {'n_estimators': 100, 'random_state': 42} # add option for model_params?
@@ -156,6 +161,31 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
             X_test = X.iloc[i:prediction_end]
             data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
+    elif strategy == "XGBoost":
+        model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}
+        model = XGBClassifier(**model_params)
+        le = LabelEncoder()
+        
+        # Prepare columns
+        data['Signal'] = 0
+        data['Portfolio_Value'] = 1
+        initial_capital = 10000
+
+        for i in range(initial_training_period, len(data), retrain_interval):
+            # Train only on past data up to the current point
+            train_data = data.iloc[:i]
+            X_train = train_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            y_train = le.fit_transform( train_data['Target'] )
+
+            # Train the model
+            model.fit(X_train, y_train)
+
+            # Predict for the next retrain_interval days
+            prediction_end = min(i + retrain_interval, len(data))
+            test_data = data.iloc[i:prediction_end]
+            X_test = test_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(model.predict(X_test))
+    
     elif strategy == 'Perfection':
         data['Signal'] = 0
         data.loc[data['spy_next_day_change_type']=="increase", 'Signal'] = 1
