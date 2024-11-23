@@ -44,25 +44,6 @@ def calculate_technical_indicators(data):
     data['VWAP'] = calculate_vwap(data)
     return data
 
-def preprocess_data(data):
-    """
-    Prepare data for machine learning.
-    """
-    # Add technical indicators
-    data = calculate_technical_indicators(data)
-    
-    # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-    data['Target'] = np.sign(data['Close'].shift(-1) - data['Close'])
-    
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna()
-    
-    # Define features and target
-    X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
-    y = data['Target']
-    
-    return X, y
-
 
 def backtest_strategy(data, initial_capital, strategy, **kwargs):
     """
@@ -137,10 +118,21 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data.loc[data['Close'] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy =="RandomForest":
-        data = data.dropna()  # Drop rows with missing values
-
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
+
+        data = calculate_technical_indicators(data)
+    
+        # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
+        data['Target'] = np.sign(data['Close'].shift(-1) - data['Close'])
+        
+        # Drop rows with missing values due to rolling calculations
+        data = data.dropna()
+        
+        # Define features and target
+        # X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP','Volume']]
+        X = data[['RSI', 'MA20', 'MA50']]
+        y = data['Target']
 
         # model_params = model_params or {'n_estimators': 100, 'random_state': 42} # add option for model_params?
         model_params =  {'n_estimators': 100, 'random_state': 42}                  # add option for model_params?
@@ -152,17 +144,16 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
-            y_train = train_data['Target']
+            X_train = X.iloc[:i]
+            y_train = y.iloc[:i]
 
             # Train the model
             model.fit(X_train, y_train)
 
             # Predict for the next retrain_interval days
             prediction_end = min(i + retrain_interval, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            
+            X_test = X.iloc[i:prediction_end]
             data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
     elif strategy == 'Perfection':
