@@ -62,6 +62,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
     Returns:
         DataFrame: Data with strategy signals and portfolio value.
         float: Total profit/loss.
+        model
     """
     data = data.copy()  # Prevent modifying the original DataFrame
 
@@ -124,6 +125,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
     elif strategy =="RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
+        selected_features = kwargs.get('selected_features')
 
         data = calculate_technical_indicators(data)
     
@@ -134,9 +136,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data = data.dropna()
         
         # Define features and target
-        X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP','Open','High','Low','Close','Volume']]
-        # X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP','Volume']]
-        # X = data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+        X = data[selected_features]
         y = data['Target']
 
         # model_params = model_params or {'n_estimators': 100, 'random_state': 42} # add option for model_params?
@@ -162,8 +162,25 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
             data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
     elif strategy == "XGBoost":
-        model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}
-        model = XGBClassifier(**model_params)
+        initial_training_period = kwargs.get('initial_training_period')
+        retrain_interval = kwargs.get('retrain_interval')
+        selected_features = kwargs.get('selected_features')
+
+        data = calculate_technical_indicators(data)
+    
+        # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
+        data['Target'] = np.sign(data['Close'].shift(-1) - data['Close'])
+        
+        # Drop rows with missing values due to rolling calculations
+        data = data.dropna()
+        
+        # Define features and target
+        X = data[selected_features]
+        y = data['Target']
+        
+        # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
+        model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
+        model = XGBClassifier(**model_params)                                            # add option for model_params?
         le = LabelEncoder()
         
         # Prepare columns
