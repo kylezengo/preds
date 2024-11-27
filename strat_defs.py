@@ -191,7 +191,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
             train_data = data.iloc[:i]
-            X_train = train_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            X_train = train_data[selected_features]
             y_train = le.fit_transform( train_data['Target'] )
 
             # Train the model
@@ -200,7 +200,7 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
             # Predict for the next retrain_interval days
             prediction_end = min(i + retrain_interval, len(data))
             test_data = data.iloc[i:prediction_end]
-            X_test = test_data[['RSI', 'MA20', 'MA50', 'Bollinger_Upper', 'Bollinger_Lower', 'VWAP']]
+            X_test = test_data[selected_features]
             data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(model.predict(X_test))
     
     elif strategy == 'Perfection':
