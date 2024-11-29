@@ -2,10 +2,10 @@ import pandas as pd
 import numpy as np
 
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from xgboost import XGBRegressor
 from xgboost import XGBClassifier
 
 
@@ -124,6 +124,43 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         data['Signal'] = 0
         data.loc[data['spy_Close'] > data['High_Max'], 'Signal'] = 1  # Breakout above
         data.loc[data['spy_Close'] < data['Low_Min'], 'Signal'] = -1  # Breakout below
+
+    elif strategy == "Logit":
+        initial_training_period = kwargs.get('initial_training_period')
+        retrain_interval = kwargs.get('retrain_interval')
+        selected_features = kwargs.get('selected_features')
+
+        data = calculate_technical_indicators(data)
+
+         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
+        data['Target'] = np.sign(data['spy_Close'].shift(-1) - data['spy_Close'])
+        
+        # Drop rows with missing values due to rolling calculations
+        data = data.dropna()
+        
+        # Define features and target
+        X = data[selected_features]
+        y = data['Target']
+        
+        reg_log = LogisticRegression(max_iter=1000).fit(X,y)
+
+        # Prepare columns
+        data['Signal'] = 0
+        data['Portfolio_Value'] = 1
+
+        for i in range(initial_training_period, len(data), retrain_interval):
+            # Train only on past data up to the current point
+            X_train = X.iloc[:i]
+            y_train = y.iloc[:i]
+
+            # Train the model
+            reg_log.fit(X_train, y_train)
+
+            # Predict for the next retrain_interval days
+            prediction_end = min(i + retrain_interval, len(data))
+            
+            X_test = X.iloc[i:prediction_end]
+            data.loc[data.index[i:prediction_end], 'Signal'] = reg_log.predict(X_test)
 
     elif strategy =="RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
