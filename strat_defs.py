@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
@@ -9,18 +10,18 @@ from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 
-def calculate_rsi(data, window):
+def calculate_rsi(data, target, window):
     """
     Calculate the Relative Strength Index (RSI).
     
     Parameters:
-        data (DataFrame): Stock data with 'spy_Close' prices.
+        data (DataFrame): Stock data with target prices.
         window (int): Lookback period for RSI.
         
     Returns:
         Series: RSI values.
     """
-    delta = data['spy_Close'].diff()
+    delta = data[target].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
     
@@ -31,32 +32,33 @@ def calculate_rsi(data, window):
     
     return 100 - (100 / (1 + rs))
 
-def calculate_vwap(data):
+def calculate_vwap(data, target):
     cumulative_volume = data['spy_Volume'].cumsum()
-    cumulative_price_volume = (data['spy_Close'] * data['spy_Volume']).cumsum()
+    cumulative_price_volume = (data[target] * data['spy_Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_technical_indicators(data):
+def calculate_technical_indicators(data, target):
     """
     Calculate technical indicators for the dataset.
     """
-    data['RSI'] = calculate_rsi(data, window=14)
-    data['MA20'] = data['spy_Close'].rolling(window=20).mean()
-    data['MA50'] = data['spy_Close'].rolling(window=50).mean()
-    data['Bollinger_Upper'] = data['MA20'] + 2 * data['spy_Close'].rolling(window=20).std()
-    data['Bollinger_Lower'] = data['MA20'] - 2 * data['spy_Close'].rolling(window=20).std()
-    data['VWAP'] = calculate_vwap(data)
+    data['RSI'] = calculate_rsi(data, target, window=14)
+    data['MA20'] = data[target].rolling(window=20).mean()
+    data['MA50'] = data[target].rolling(window=50).mean()
+    data['Bollinger_Upper'] = data['MA20'] + 2 * data[target].rolling(window=20).std()
+    data['Bollinger_Lower'] = data['MA20'] - 2 * data[target].rolling(window=20).std()
+    data['VWAP'] = calculate_vwap(data, target)
     return data
 
 
-def backtest_strategy(data, initial_capital, strategy, **kwargs):
+def backtest_strategy(data, initial_capital, strategy, target, **kwargs):
     """
     Backtest various trading strategies.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.).
         initial_capital (float): initial investment / starting capital
+        strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.).
+        target (str): column to predict (usually Adj Close)
         **kwargs: Additional parameters for strategy customization.
 
     Returns:
@@ -70,12 +72,6 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
 
     # Calculate indicators based on the strategy
     if strategy == "Hold":
-        # Calculate daily returns
-        data['Daily_Return'] = data['spy_Close'].pct_change()
-        
-        # # Calculate portfolio value
-        # data['Portfolio_Value'] = (1 + data['Daily_Return']).cumprod() * initial_capital
-        # return data
         data['Signal'] = 1
 
     elif strategy == "SMA":   
@@ -83,57 +79,82 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         long_window = kwargs.get('long_window')
     
         # Calculate moving averages
-        data['SMA_Short'] = data['spy_Close'].rolling(window=short_window).mean()
-        data['SMA_Long'] = data['spy_Close'].rolling(window=long_window).mean()
+        data['SMA_Short'] = data[target].rolling(window=short_window).mean()
+        data['SMA_Long'] = data[target].rolling(window=long_window).mean()
         
         # Generate signals: 1 = Buy, -1 = Sell, 0 = Hold
         data['Signal'] = 0
-        data.loc[data['SMA_Long'] > data['SMA_Long'], 'Signal'] = 1
+        data.loc[data['SMA_Short'] > data['SMA_Long'], 'Signal'] = 1
         data.loc[data['SMA_Short'] <= data['SMA_Long'], 'Signal'] = -1
 
     elif strategy == 'RSI':
         rsi_window = kwargs.get('rsi_window')
         oversold = kwargs.get('oversold')
         overbought = kwargs.get('overbought')
-        data['RSI'] = calculate_rsi(data, rsi_window)
+        data['RSI'] = calculate_rsi(data, target, rsi_window)
         data['Signal'] = 0
         data.loc[data['RSI'] < kwargs.get('oversold', oversold), 'Signal'] = 1
         data.loc[data['RSI'] > kwargs.get('overbought', overbought), 'Signal'] = -1
 
     elif strategy == 'VWAP':
-        data['VWAP'] = calculate_vwap(data)
+        data['VWAP'] = calculate_vwap(data, target)
         data['Signal'] = 0
-        data.loc[data['spy_Close'] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
-        data.loc[data['spy_Close'] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
+        data.loc[data[target] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
+        data.loc[data[target] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
 
     elif strategy == 'Bollinger':
         window = kwargs.get('bollinger_window', 20)
         num_std = kwargs.get('num_std', 2)
-        data['Moving_Avg'] = data['spy_Close'].rolling(window=window).mean()
-        data['Std_Dev'] = data['spy_Close'].rolling(window=window).std()
+        data['Moving_Avg'] = data[target].rolling(window=window).mean()
+        data['Std_Dev'] = data[target].rolling(window=window).std()
         data['Upper_Band'] = data['Moving_Avg'] + (data['Std_Dev'] * num_std)
         data['Lower_Band'] = data['Moving_Avg'] - (data['Std_Dev'] * num_std)
         data['Signal'] = 0
-        data.loc[data['spy_Close'] < data['Lower_Band'], 'Signal'] = 1  # Buy
-        data.loc[data['spy_Close'] > data['Upper_Band'], 'Signal'] = -1  # Sell
+        data.loc[data[target] < data['Lower_Band'], 'Signal'] = 1  # Buy
+        data.loc[data[target] > data['Upper_Band'], 'Signal'] = -1  # Sell
  
     elif strategy == 'Breakout':
         breakout_window = kwargs.get('breakout_window')
         data['High_Max'] = data['spy_High'].rolling(window=breakout_window).max().shift(1)
         data['Low_Min'] = data['spy_Low'].rolling(window=breakout_window).min().shift(1)
         data['Signal'] = 0
-        data.loc[data['spy_Close'] > data['High_Max'], 'Signal'] = 1  # Breakout above
-        data.loc[data['spy_Close'] < data['Low_Min'], 'Signal'] = -1  # Breakout below
+        data.loc[data[target] > data['High_Max'], 'Signal'] = 1  # Breakout above
+        data.loc[data[target] < data['Low_Min'], 'Signal'] = -1  # Breakout below
+
+    elif strategy == 'Prophet':
+        initial_training_period = kwargs.get('initial_training_period')
+
+        data_simp = data[['Date',target]]
+        data_simp = data_simp.rename(columns={'Date': 'ds',target:'y'})
+          
+        # Prepare columns
+        data['Signal'] = 0
+        
+        for i in range(initial_training_period, len(data)):
+            data_simp_cut = data_simp.iloc[:i]
+
+            # Initialize and fit Prophet
+            model = Prophet(daily_seasonality=True, yearly_seasonality=True)
+            model.fit(data_simp_cut)
+
+            future = model.make_future_dataframe(periods=1, include_history=False)
+            forecast = model.predict(future)
+
+            predicted_price = forecast['yhat'].iloc[0]
+            current_price = data.loc[data.index[i - 1], target]
+
+            data.loc[data.index[i], 'Signal'] = 1 if predicted_price > current_price else -1
 
     elif strategy == "Logit":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
+        max_iter = kwargs.get('max_iter')
 
-        data = calculate_technical_indicators(data)
+        data = calculate_technical_indicators(data, target)
 
          # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-        data['Target'] = np.sign(data['spy_Close'].shift(-1) - data['spy_Close'])
+        data['Target'] = np.sign(data[target].shift(-1) - data[target])
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
@@ -142,11 +163,10 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         X = data[selected_features]
         y = data['Target']
         
-        reg_log = LogisticRegression(max_iter=1000).fit(X,y)
+        reg_log = LogisticRegression(max_iter=max_iter).fit(X,y)
 
         # Prepare columns
         data['Signal'] = 0
-        data['Portfolio_Value'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -167,10 +187,10 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
 
-        data = calculate_technical_indicators(data)
+        data = calculate_technical_indicators(data, target)
     
         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-        data['Target'] = np.sign(data['spy_Close'].shift(-1) - data['spy_Close'])
+        data['Target'] = np.sign(data[target].shift(-1) - data[target])
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
@@ -185,7 +205,6 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         
         # Prepare columns
         data['Signal'] = 0
-        data['Portfolio_Value'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -206,10 +225,10 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
 
-        data = calculate_technical_indicators(data)
+        data = calculate_technical_indicators(data,target)
     
         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-        data['Target'] = np.sign(data['spy_Close'].shift(-1) - data['spy_Close'])
+        data['Target'] = np.sign(data[target].shift(-1) - data[target])
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
@@ -225,8 +244,6 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
         
         # Prepare columns
         data['Signal'] = 0
-        data['Portfolio_Value'] = 1
-        initial_capital = 10000
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -265,8 +282,8 @@ def backtest_strategy(data, initial_capital, strategy, **kwargs):
             signal_adj.append(prev)
             
     data['signal_adj'] = signal_adj
-
-    data['Daily_Return'] = data['spy_Close'].pct_change()
+    
+    data['Daily_Return'] = data[target].pct_change()
     data['Strategy_Return'] = data['signal_adj'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
