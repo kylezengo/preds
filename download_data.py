@@ -2,8 +2,6 @@ import requests
 import pandas as pd
 import yfinance as yf
 
-from datetime import date
-
 def download_stocks_data(start_date, end_date):
     # Get list of S&P 500 tickers from Wikipedia page
     sp_wiki = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")

@@ -166,7 +166,7 @@ def backtest_strategy(data, initial_capital, strategy, target, **kwargs):
         reg_log = LogisticRegression(max_iter=max_iter).fit(X,y)
 
         # Prepare columns
-        data['Signal'] = 0
+        data['Signal'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -204,7 +204,7 @@ def backtest_strategy(data, initial_capital, strategy, target, **kwargs):
         model = RandomForestClassifier(**model_params)                             # add option for model_params?
         
         # Prepare columns
-        data['Signal'] = 0
+        data['Signal'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -243,7 +243,7 @@ def backtest_strategy(data, initial_capital, strategy, target, **kwargs):
         le = LabelEncoder()
         
         # Prepare columns
-        data['Signal'] = 0
+        data['Signal'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -261,7 +261,7 @@ def backtest_strategy(data, initial_capital, strategy, target, **kwargs):
             data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(model.predict(X_test))
     
     elif strategy == 'Perfection':
-        data['Signal'] = 0
+        data['Signal'] = 1
         data.loc[data['spy_next_day_change_type']=="increase", 'Signal'] = 1
         data.loc[data['spy_next_day_change_type']=="decrease", 'Signal'] = -1
 

@@ -1,12 +1,11 @@
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import glob
 import os
 
 from plotly.subplots import make_subplots
-from dash import Dash, html, dash_table, dcc, callback, Output, Input
+from dash import Dash, html, dcc, callback, Output, Input
 
 import strat_defs # custom functions from github 
 
