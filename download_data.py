@@ -8,10 +8,10 @@ def download_stocks_data(start_date, end_date):
 
     sp_df = pd.read_html(sp_wiki.content)[0]
 
-    stocks_list = sp_df['Symbol']
+    sp500_tickers = sp_df['Symbol']
 
     dat_list = []
-    for i in stocks_list:
+    for i in sp500_tickers+["SPY"]:
         data = yf.download(i, start=start_date, end=end_date, progress=False)
         data['ticker'] = i
         dat_list.append(data)
@@ -19,13 +19,9 @@ def download_stocks_data(start_date, end_date):
     stocks_df = pd.concat(dat_list)
     stocks_df = stocks_df.reset_index()
 
-    # Download SPY data
-    spy = yf.download("SPY", start=start_date, end=end_date, progress=False)
-    spy = spy.reset_index()
-
     # Download outstanding shares data
     dat_list = []
-    for i in stocks_list:
+    for i in sp500_tickers:
         if yf.Ticker(i).get_shares_full() is not None:
             os = yf.Ticker(i).get_shares_full(start=start_date, end=end_date)
             os = pd.DataFrame(os)
@@ -76,4 +72,4 @@ def download_stocks_data(start_date, end_date):
 
     os_df_days = pd.concat(dat_list, ignore_index=True)
 
-    return [sp_df,stocks_df,spy,os_df_days]
+    return [sp_df,stocks_df,os_df_days]
