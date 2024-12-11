@@ -27,7 +27,6 @@ app.layout = html.Div(
         html.Label("Ticker"),
         dcc.Input(
             id='ticker-input',
-            # type='number',
             value='SPY'
         ),
         html.Label("Short Window"),
@@ -94,7 +93,7 @@ def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_wi
     # Daily prices with moving averages and RSI
     df_for_chart['SMA_Short'] = df_for_chart['Adj Close'].rolling(window=short_window).mean()
     df_for_chart['SMA_Long'] = df_for_chart['Adj Close'].rolling(window=long_window).mean()
-    df_for_chart['RSI'] = strat_defs.calculate_rsi(df_for_chart, 'Adj Close', window=rsi_window)
+    df_for_chart['RSI'] = strat_defs.calculate_rsi(df_for_chart, ticker, 'Adj Close', window=rsi_window)
 
     fig_sub = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.02,row_heights=[0.7,0.3])
 
