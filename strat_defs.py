@@ -120,8 +120,10 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         overbought = kwargs.get('overbought')
         data['RSI'] = calculate_rsiW(data, ticker, target, rsi_window)
         data['Signal'] = 0
-        data.loc[data['RSI'] < kwargs.get('oversold', oversold), 'Signal'] = 1
-        data.loc[data['RSI'] > kwargs.get('overbought', overbought), 'Signal'] = -1
+        # data.loc[data['RSI'] < kwargs.get('oversold', oversold), 'Signal'] = 1 # are these right? fix below
+        # data.loc[data['RSI'] > kwargs.get('overbought', overbought), 'Signal'] = -1
+        data.loc[data['RSI'] < oversold, 'Signal'] = 1
+        data.loc[data['RSI'] > overbought, 'Signal'] = -1
 
     elif strategy == 'VWAP':
         data['VWAP'] = calculate_vwapW(data, ticker, target)
