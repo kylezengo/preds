@@ -68,12 +68,12 @@ def calculate_technical_indicators(data, ticker, target):
     """
     Calculate technical indicators for the dataset.
     """
-    data['RSI'] = calculate_rsi(data, ticker, target, window=14)
+    data['RSI'] = calculate_rsiW(data, ticker, target, window=14)
     data['MA20'] = data[target+"_"+ticker].rolling(window=20).mean()
     data['MA50'] = data[target+"_"+ticker].rolling(window=50).mean()
     data['Bollinger_Upper'] = data['MA20'] + 2 * data[target+"_"+ticker].rolling(window=20).std()
     data['Bollinger_Lower'] = data['MA20'] - 2 * data[target+"_"+ticker].rolling(window=20).std()
-    data['VWAP'] = calculate_vwap(data, ticker, target)
+    data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
 
@@ -118,13 +118,13 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         rsi_window = kwargs.get('rsi_window')
         oversold = kwargs.get('oversold')
         overbought = kwargs.get('overbought')
-        data['RSI'] = calculate_rsi(data, ticker, target, rsi_window)
+        data['RSI'] = calculate_rsiW(data, ticker, target, rsi_window)
         data['Signal'] = 0
         data.loc[data['RSI'] < kwargs.get('oversold', oversold), 'Signal'] = 1
         data.loc[data['RSI'] > kwargs.get('overbought', overbought), 'Signal'] = -1
 
     elif strategy == 'VWAP':
-        data['VWAP'] = calculate_vwap(data, ticker, target)
+        data['VWAP'] = calculate_vwapW(data, ticker, target)
         data['Signal'] = 0
         data.loc[data[target+"_"+ticker] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
         data.loc[data[target+"_"+ticker] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
