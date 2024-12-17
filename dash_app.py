@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import glob
 import os
-
 from plotly.subplots import make_subplots
 from dash import Dash, html, dcc, callback, Output, Input
 
@@ -12,13 +11,9 @@ import strat_defs # custom functions from github
 app = Dash()
 
 # Load data
-stocks_df_files = glob.glob('/Users/kylezengo/Desktop/DS/Stocks/stocks_df/*.csv')
+stocks_df_files = glob.glob('stocks_df_*.csv')
 stocks_df_latest = max(stocks_df_files, key=os.path.getctime)
 stocks_df = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
-
-spy_full_files = glob.glob('/Users/kylezengo/Desktop/DS/Stocks/spy_full/*.csv')
-spy_full_latest = max(spy_full_files, key=os.path.getctime)
-spy_full = pd.read_csv(spy_full_latest, parse_dates=['Date'])
 
 
 # App layout
@@ -78,22 +73,19 @@ app.layout = html.Div(
 )
 
 def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window):
-    ticker=ticker
+    ticker = ticker
     short_window = short_window
     long_window = long_window
     oversold = oversold
     overbought = overbought
     rsi_window = rsi_window
 
-    if ticker == "SPY":
-        df_for_chart = spy_full.copy()
-    else:
-        df_for_chart = stocks_df.loc[stocks_df['ticker']==ticker].reset_index(drop=True)
+    df_for_chart = stocks_df.loc[stocks_df['ticker']==ticker].reset_index(drop=True)
 
     # Daily prices with moving averages and RSI
     df_for_chart['SMA_Short'] = df_for_chart['Adj Close'].rolling(window=short_window).mean()
     df_for_chart['SMA_Long'] = df_for_chart['Adj Close'].rolling(window=long_window).mean()
-    df_for_chart['RSI'] = strat_defs.calculate_rsi(df_for_chart, ticker, 'Adj Close', window=rsi_window)
+    df_for_chart['RSI'] = strat_defs.calculate_rsiL(df_for_chart, 'Adj Close', window=rsi_window)
 
     fig_sub = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.02,row_heights=[0.7,0.3])
 

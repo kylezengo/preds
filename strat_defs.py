@@ -10,7 +10,7 @@ from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 
-def calculate_rsi(data, ticker, target, window):
+def calculate_rsiW(data, ticker, target, window):
     """
     Calculate the Relative Strength Index (RSI).
     
@@ -32,9 +32,36 @@ def calculate_rsi(data, ticker, target, window):
     
     return 100 - (100 / (1 + rs))
 
-def calculate_vwap(data, ticker, target):
+def calculate_rsiL(data, target, window):
+    """
+    Calculate the Relative Strength Index (RSI).
+    
+    Parameters:
+        data (DataFrame): Stock data with target prices.
+        window (int): Lookback period for RSI.
+        
+    Returns:
+        Series: RSI values.
+    """
+    delta = data[target].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    
+    avg_gain = pd.Series(gain).rolling(window=window).mean()
+    avg_loss = pd.Series(loss).rolling(window=window).mean()
+    
+    rs = avg_gain / avg_loss
+    
+    return 100 - (100 / (1 + rs))
+
+def calculate_vwapW(data, ticker, target):
     cumulative_volume = data["Volume_"+ticker].cumsum()
     cumulative_price_volume = (data[target+"_"+ticker] * data["Volume_"+ticker]).cumsum()
+    return cumulative_price_volume / cumulative_volume
+
+def calculate_vwapL(data, target):
+    cumulative_volume = data['Volume'].cumsum()
+    cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
 def calculate_technical_indicators(data, ticker, target):
