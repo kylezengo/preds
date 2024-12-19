@@ -78,7 +78,7 @@ from datetime import datetime
 #     return [sp_df,stocks_df,os_df_days]
 
 
-start_date = "1995-01-01"
+start_date = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
 end_date = datetime.today().strftime('%Y-%m-%d')
 
 # Get list of S&P 500 tickers from Wikipedia page

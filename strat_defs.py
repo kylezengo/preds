@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
