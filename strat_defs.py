@@ -3,9 +3,9 @@ import numpy as np
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+# from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+# from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from xgboost import XGBClassifier
 
 
@@ -92,7 +92,10 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         DataFrame: Data with strategy signals and portfolio value.
         model: forcasting model, if available
     """
+    data_raw = data.copy()
     data = data.copy()  # Prevent modifying the original DataFrame
+
+    og_min_date = min(data_raw['Date'])
 
     model = None
 
@@ -191,7 +194,8 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         X = data[selected_features]
         y = data['Target']
         
-        reg_log = LogisticRegression(max_iter=max_iter).fit(X,y)
+        model = LogisticRegression(max_iter=max_iter)
+        scaler = StandardScaler()
 
         # Prepare columns
         data['Signal'] = 1
@@ -201,14 +205,22 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             X_train = X.iloc[:i]
             y_train = y.iloc[:i]
 
-            # Train the model
-            reg_log.fit(X_train, y_train)
+            # Fit the scaler on the training data
+            scaler.fit(X_train)
+
+            # Scale training data and fit model
+            X_train_scaled = scaler.transform(X_train)
+
+            model.fit(X_train_scaled, y_train)
 
             # Predict for the next retrain_interval days
             prediction_end = min(i + retrain_interval, len(data))
-            
             X_test = X.iloc[i:prediction_end]
-            data.loc[data.index[i:prediction_end], 'Signal'] = reg_log.predict(X_test)
+
+            # Scale test data using already fitted scaler
+            X_test_scaled = scaler.transform(X_test)
+
+            data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
 
     elif strategy =="RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
@@ -295,6 +307,12 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
+
+    # Stack on older data where had a training period, assume held stock during that time
+    if min(data['Date']) != og_min_date:
+        data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
+        data_training_period['Signal']=1
+        data = pd.concat([data_training_period,data])
 
     # Backtest logic: Calculate portfolio value
     signal_adj = []
