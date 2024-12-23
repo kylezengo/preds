@@ -154,6 +154,6 @@ for index, row in os_df_date_tick.iterrows():
 
 os_df_days = pd.concat(dat_list, ignore_index=True)
 
-sp_df.to_csv(f'sp_df_{datetime.today().strftime('%Y%m%d')}.csv', index=False)
-stocks_df.to_csv(f'stocks_df_{datetime.today().strftime('%Y%m%d')}.csv', index=False)
-os_df_days.to_csv(f'os_df_days_{datetime.today().strftime('%Y%m%d')}.csv', index=False)
+sp_df.to_csv(f'sp_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+stocks_df.to_csv(f'stocks_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+os_df_days.to_csv(f'os_df_days_{datetime.today().strftime("%Y%m%d")}.csv', index=False)

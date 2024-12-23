@@ -90,8 +90,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         DataFrame: Data with strategy signals and portfolio value.
         model: forcasting model, if available
     """
-    data_raw = data.copy()
-    data = data.copy()  # Prevent modifying the original DataFrame
+    data_raw = data.copy() # Prevent modifying the original DataFrame
 
     og_min_date = min(data_raw['Date'])
 
@@ -99,9 +98,11 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     # Calculate indicators based on the strategy
     if strategy == "Hold":
+        data=data_raw.copy()
         data['Signal'] = 1
 
-    elif strategy == "SMA":   
+    elif strategy == "SMA":
+        data=data_raw.copy()
         short_window = kwargs.get('short_window')
         long_window = kwargs.get('long_window')
     
@@ -115,6 +116,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         data.loc[data['SMA_Short'] <= data['SMA_Long'], 'Signal'] = -1
 
     elif strategy == 'RSI':
+        data=data_raw.copy()
         rsi_window = kwargs.get('rsi_window')
         oversold = kwargs.get('oversold')
         overbought = kwargs.get('overbought')
@@ -126,12 +128,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         data.loc[data['RSI'] > overbought, 'Signal'] = -1
 
     elif strategy == 'VWAP':
+        data=data_raw.copy()
         data['VWAP'] = calculate_vwapW(data, ticker, target)
         data['Signal'] = 0
         data.loc[data[target+"_"+ticker] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
         data.loc[data[target+"_"+ticker] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
 
     elif strategy == 'Bollinger':
+        data=data_raw.copy()
         bollinger_window = kwargs.get('bollinger_window')
         bollinger_num_std = kwargs.get('bollinger_num_std')
         data['Moving_Avg'] = data[target+"_"+ticker].rolling(window=bollinger_window).mean()
@@ -143,6 +147,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         data.loc[data[target+"_"+ticker] > data['Upper_Band'], 'Signal'] = -1  # Sell
  
     elif strategy == 'Breakout':
+        data=data_raw.copy()
         breakout_window = kwargs.get('breakout_window')
         data['High_Max'] = data['spy_High'].rolling(window=breakout_window).max().shift(1)
         data['Low_Min'] = data['spy_Low'].rolling(window=breakout_window).min().shift(1)
@@ -151,6 +156,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         data.loc[data[target+"_"+ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy == 'Prophet':
+        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
 
         data_simp = data[['Date',target+"_"+ticker]]
@@ -175,6 +181,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             data.loc[data.index[i], 'Signal'] = 1 if predicted_price > current_price else -1
 
     elif strategy == "Logit":
+        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
@@ -221,6 +228,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
 
     elif strategy =="RandomForest":
+        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
@@ -259,6 +267,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
     elif strategy == "XGBoost_scaled":
+        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
@@ -309,6 +318,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(model.predict(X_test_scaled))
 
     elif strategy == "XGBoost":
+        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
@@ -351,14 +361,13 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             predicted_classes = model.predict(X_test)
             predicted_probabilities = model.predict_proba(X_test)
 
+            # Try signal -1 only if prob -1 > 0.9 (so need to update below)
+            # could try 0.95 too if want to be really conservative (test both)
             data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(predicted_classes)
-
-            # proba
-            # data.loc[data.index[i:prediction_end], 'Signal_proba'] = predicted_probabilities
 
             # store the probabilities for each class in separate columns
             for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_Signal{class_name}"
+                probability_column = f"proba_{class_name}"
                 data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
             
     
@@ -369,7 +378,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
-
+    
     # Stack on older data where had a training period, assume held stock during that time
     if min(data['Date']) != og_min_date:
         data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
