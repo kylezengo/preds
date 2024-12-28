@@ -186,6 +186,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
         max_iter = kwargs.get('max_iter')
+        logit_proba = kwargs.get('logit_proba')
 
         data = calculate_technical_indicators(data, ticker, target)
 
@@ -194,38 +195,42 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
-        
-        # Define features and target
-        X = data[selected_features]
-        y = data['Target']
-        
+                
         model = LogisticRegression(max_iter=max_iter)
         scaler = StandardScaler()
+        le = LabelEncoder()
 
         # Prepare columns
         data['Signal'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
-            X_train = X.iloc[:i]
-            y_train = y.iloc[:i]
+            train_data = data.iloc[:i]
+            X_train = train_data[selected_features]
+            y_train = le.fit_transform( train_data['Target'] )
 
-            # Fit the scaler on the training data
+            # Fit the scaler on the training data, scale training data and fit model
             scaler.fit(X_train)
-
-            # Scale training data and fit model
             X_train_scaled = scaler.transform(X_train)
-
             model.fit(X_train_scaled, y_train)
 
             # Predict for the next retrain_interval days
             prediction_end = min(i + retrain_interval, len(data))
-            X_test = X.iloc[i:prediction_end]
+            test_data = data.iloc[i:prediction_end]
+            X_test = test_data[selected_features]
 
             # Scale test data using already fitted scaler
             X_test_scaled = scaler.transform(X_test)
 
-            data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
+            # data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
+
+            # store the probabilities for each class in separate columns
+            predicted_probabilities = model.predict_proba(X_test_scaled)
+            for class_index, class_name in enumerate(le.classes_):
+                probability_column = f"proba_logit_{class_name}"
+                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            
+        data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
 
     elif strategy =="RandomForest":
         data=data_raw.copy()
@@ -322,6 +327,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
+        xgboost_proba = kwargs.get('xgboost_proba')
 
         data = calculate_technical_indicators(data, ticker, target)
     
@@ -331,17 +337,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
         
-        # Define features and target
-        X = data[selected_features]
-        y = data['Target']
+        # # Define features and target
+        # X = data[selected_features]
+        # y = data['Target']
         
         # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
         model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
         model = XGBClassifier(**model_params)                                            # add option for model_params?
         le = LabelEncoder()
-        
-        # Prepare columns
-        data['Signal'] = 1
 
         for i in range(initial_training_period, len(data), retrain_interval):
             # Train only on past data up to the current point
@@ -358,19 +361,85 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
             X_test = test_data[selected_features]
 
             # Get predictions and probabilities
-            predicted_classes = model.predict(X_test)
-            predicted_probabilities = model.predict_proba(X_test)
+            # predicted_classes = model.predict(X_test)
+            # data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(predicted_classes) # should be = to if something something = 0.5
 
-            # Try signal -1 only if prob -1 > 0.9 (so need to update below)
-            # could try 0.95 too if want to be really conservative (test both)
-            data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(predicted_classes)
+            # store the probabilities for each class in separate columns
+            predicted_probabilities = model.predict_proba(X_test)
+            for class_index, class_name in enumerate(le.classes_):
+                probability_column = f"proba_xgboost_{class_name}"
+                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            
+        data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
+
+    elif strategy == "Logit_XGBoost": # remove/ implement this differently. It just duplicates Logit and XGBoost right now 
+        data=data_raw.copy()
+        initial_training_period = kwargs.get('initial_training_period')
+        retrain_interval = kwargs.get('retrain_interval')
+        selected_features = kwargs.get('selected_features')
+        xgboost_proba = kwargs.get('xgboost_proba')
+        max_iter = kwargs.get('max_iter')
+
+        data = calculate_technical_indicators(data, ticker, target)
+    
+        # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
+        data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
+        
+        # Drop rows with missing values due to rolling calculations
+        data = data.dropna()
+        
+        # Define features and target
+        X = data[selected_features]
+        y = data['Target']
+        
+        # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
+        model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
+        model_X = XGBClassifier(**model_params)                                            # add option for model_params?
+        le = LabelEncoder()
+        model_L = LogisticRegression(max_iter=max_iter)
+        scaler = StandardScaler()
+
+        for i in range(initial_training_period, len(data), retrain_interval):
+            # Train only on past data up to the current point
+            train_data = data.iloc[:i]
+            X_train = train_data[selected_features]
+            y_train_T = le.fit_transform( train_data['Target'] )
+            y_train_L = train_data['Target']
+
+            # Train the model
+            model_X.fit(X_train, y_train_T)
+
+            # Predict for the next retrain_interval days
+            prediction_end = min(i + retrain_interval, len(data))
+            test_data = data.iloc[i:prediction_end]
+            X_test = test_data[selected_features]
+
+            # Get predictions and probabilities
+            predicted_probabilities = model_X.predict_proba(X_test)
 
             # store the probabilities for each class in separate columns
             for class_index, class_name in enumerate(le.classes_):
                 probability_column = f"proba_{class_name}"
                 data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+
+            # Fit the scaler on the training data
+            scaler.fit(X_train)
+
+            # Scale training data and fit model
+            X_train_scaled = scaler.transform(X_train)
+
+            model_L.fit(X_train_scaled, y_train_L)
+
+            # Scale test data using already fitted scaler
+            X_test_scaled = scaler.transform(X_test)
+
+            data.loc[data.index[i:prediction_end], 'Signal_L'] = model_L.predict(X_test_scaled)
             
-    
+        data['Signal_X'] = np.where(data['proba_-1.0'] > xgboost_proba, -1, 1)
+        data['Signal'] = np.where((data['Signal_X']==-1) & (data['Signal_L']==-1), -1, 1)
+
+        model = None
+
     elif strategy == 'Perfection':
         data['Signal'] = 1
         data.loc[data['spy_next_day_change_type']=="increase", 'Signal'] = 1
