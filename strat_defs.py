@@ -61,20 +61,21 @@ def calculate_vwapL(data, target):
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_technical_indicators(data, ticker, target):
+def calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window):
     """
     Calculate technical indicators for the dataset.
     """
-    data['RSI'] = calculate_rsiW(data, ticker, target, window=14)
-    data['MA20'] = data[target+"_"+ticker].rolling(window=20).mean()
-    data['MA50'] = data[target+"_"+ticker].rolling(window=50).mean()
-    data['Bollinger_Upper'] = data['MA20'] + 2 * data[target+"_"+ticker].rolling(window=20).std()
-    data['Bollinger_Lower'] = data['MA20'] - 2 * data[target+"_"+ticker].rolling(window=20).std()
+    data['RSI'] = calculate_rsiW(data, ticker, target, window=rsi_window)
+    data['MA_S'] = data[target+"_"+ticker].rolling(window=short_window).mean()
+    data['MA_L'] = data[target+"_"+ticker].rolling(window=long_window).mean()
+    data['MA_B'] = data[target+"_"+ticker].rolling(window=bollinger_window).mean()
+    data['Bollinger_Upper'] = data['MA_B'] + 2 * data[target+"_"+ticker].rolling(window=bollinger_window).std()
+    data['Bollinger_Lower'] = data['MA_B'] - 2 * data[target+"_"+ticker].rolling(window=bollinger_window).std()
     data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
 
-def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs):
+def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, **kwargs):
     """
     Backtest various trading strategies.
 
@@ -103,8 +104,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     elif strategy == "SMA":
         data=data_raw.copy()
-        short_window = kwargs.get('short_window')
-        long_window = kwargs.get('long_window')
     
         # Calculate moving averages
         data['SMA_Short'] = data[target+"_"+ticker].rolling(window=short_window).mean()
@@ -117,15 +116,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     elif strategy == 'RSI':
         data=data_raw.copy()
-        rsi_window = kwargs.get('rsi_window')
-        oversold = kwargs.get('oversold')
-        overbought = kwargs.get('overbought')
-        data['RSI'] = calculate_rsiW(data, ticker, target, rsi_window)
+        rsi_oversold = kwargs.get('rsi_oversold')
+        rsi_overbought = kwargs.get('rsi_overbought')
+        data['RSI'] = calculate_rsiW(data, ticker, target, window=rsi_window)
         data['Signal'] = 0
         # data.loc[data['RSI'] < kwargs.get('oversold', oversold), 'Signal'] = 1 # are these right? fix below
         # data.loc[data['RSI'] > kwargs.get('overbought', overbought), 'Signal'] = -1
-        data.loc[data['RSI'] < oversold, 'Signal'] = 1
-        data.loc[data['RSI'] > overbought, 'Signal'] = -1
+        data.loc[data['RSI'] < rsi_oversold, 'Signal'] = 1
+        data.loc[data['RSI'] > rsi_overbought, 'Signal'] = -1
 
     elif strategy == 'VWAP':
         data=data_raw.copy()
@@ -136,7 +134,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
 
     elif strategy == 'Bollinger':
         data=data_raw.copy()
-        bollinger_window = kwargs.get('bollinger_window')
         bollinger_num_std = kwargs.get('bollinger_num_std')
         data['Moving_Avg'] = data[target+"_"+ticker].rolling(window=bollinger_window).mean()
         data['Std_Dev'] = data[target+"_"+ticker].rolling(window=bollinger_window).std()
@@ -185,7 +182,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
-        max_iter = kwargs.get('max_iter')
+        logit_max_iter = kwargs.get('logit_max_iter')
         logit_proba = kwargs.get('logit_proba')
 
         data = calculate_technical_indicators(data, ticker, target)
@@ -196,7 +193,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         # Drop rows with missing values due to rolling calculations
         data = data.dropna()
                 
-        model = LogisticRegression(max_iter=max_iter)
+        model = LogisticRegression(max_iter=logit_max_iter)
         scaler = StandardScaler()
         le = LabelEncoder()
 
@@ -238,7 +235,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
 
-        data = calculate_technical_indicators(data, ticker, target)
+        data = calculate_technical_indicators(data, ticker, target, short_window, long_window, bollinger_window)
     
         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
         data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
@@ -371,74 +368,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, **kwargs)
                 data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
             
         data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
-
-    elif strategy == "Logit_XGBoost": # remove/ implement this differently. It just duplicates Logit and XGBoost right now 
-        data=data_raw.copy()
-        initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
-        xgboost_proba = kwargs.get('xgboost_proba')
-        max_iter = kwargs.get('max_iter')
-
-        data = calculate_technical_indicators(data, ticker, target)
-    
-        # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
-        data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
-        
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna()
-        
-        # Define features and target
-        X = data[selected_features]
-        y = data['Target']
-        
-        # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
-        model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
-        model_X = XGBClassifier(**model_params)                                            # add option for model_params?
-        le = LabelEncoder()
-        model_L = LogisticRegression(max_iter=max_iter)
-        scaler = StandardScaler()
-
-        for i in range(initial_training_period, len(data), retrain_interval):
-            # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[selected_features]
-            y_train_T = le.fit_transform( train_data['Target'] )
-            y_train_L = train_data['Target']
-
-            # Train the model
-            model_X.fit(X_train, y_train_T)
-
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[selected_features]
-
-            # Get predictions and probabilities
-            predicted_probabilities = model_X.predict_proba(X_test)
-
-            # store the probabilities for each class in separate columns
-            for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_{class_name}"
-                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-
-            # Fit the scaler on the training data
-            scaler.fit(X_train)
-
-            # Scale training data and fit model
-            X_train_scaled = scaler.transform(X_train)
-
-            model_L.fit(X_train_scaled, y_train_L)
-
-            # Scale test data using already fitted scaler
-            X_test_scaled = scaler.transform(X_test)
-
-            data.loc[data.index[i:prediction_end], 'Signal_L'] = model_L.predict(X_test_scaled)
-            
-        data['Signal_X'] = np.where(data['proba_-1.0'] > xgboost_proba, -1, 1)
-        data['Signal'] = np.where((data['Signal_X']==-1) & (data['Signal_L']==-1), -1, 1)
-
-        model = None
 
     elif strategy == 'Perfection':
         data['Signal'] = 1
