@@ -74,7 +74,6 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
     data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
-
 def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, **kwargs):
     """
     Backtest various trading strategies.
@@ -185,7 +184,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_proba = kwargs.get('logit_proba')
 
-        data = calculate_technical_indicators(data, ticker, target)
+        data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window)
 
          # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
         data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
@@ -274,7 +273,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         retrain_interval = kwargs.get('retrain_interval')
         selected_features = kwargs.get('selected_features')
 
-        data = calculate_technical_indicators(data, ticker, target)
+        data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window)
     
         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
         data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
@@ -326,7 +325,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         selected_features = kwargs.get('selected_features')
         xgboost_proba = kwargs.get('xgboost_proba')
 
-        data = calculate_technical_indicators(data, ticker, target)
+        data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window)
     
         # Define target variable: price direction (1 = up, -1 = down, 0 = stable)
         data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
