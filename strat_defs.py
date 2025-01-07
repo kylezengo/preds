@@ -91,7 +91,8 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
     data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
-def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std, **kwargs):
+def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std,
+                      random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
@@ -106,6 +107,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         rsi_window (int):
         bollinger_window (int):
         bollinger_num_std (flot):
+        random_state (int): 
         **kwargs: Additional parameters for some strategies
 
     Returns:
@@ -115,6 +117,8 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     data_raw = data.copy() # Prevent modifying the original DataFrame
 
     og_min_date = min(data_raw['Date'])
+
+    selected_features = ([x for x in list(data_raw) if x not in ['Date']] + ['RSI','MA_S','MA_L','Bollinger_Upper','Bollinger_Lower','VWAP'])
 
     model = None
 
@@ -158,7 +162,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         data.loc[data[target+"_"+ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy == 'Prophet':
-        data=data_raw.copy()
         initial_training_period = kwargs.get('initial_training_period')
 
         data_simp = data[['Date',target+"_"+ticker]]
@@ -185,7 +188,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "Logit":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_proba = kwargs.get('logit_proba')
 
@@ -229,7 +231,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy =="RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna().copy()
@@ -238,9 +239,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         X = data[selected_features]
         y = data['Target']
 
-        # model_params = model_params or {'n_estimators': 100, 'random_state': 42} # add option for model_params?
-        model_params =  {'n_estimators': 100, 'random_state': 42}                  # add option for model_params?
-        model = RandomForestClassifier(**model_params)                             # add option for model_params?
+        model = RandomForestClassifier(random_state=random_state)
         
         # Prepare columns
         data['Signal'] = 1
@@ -262,18 +261,11 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna().copy()
         
-        # Define features and target
-        X = data[selected_features]
-        y = data['Target']
-        
-        # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
-        model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
-        model = XGBClassifier(**model_params)                                            # add option for model_params?
+        model = XGBClassifier(random_state=random_state)
         le = LabelEncoder()
         scaler = StandardScaler()
         
@@ -307,19 +299,12 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
         xgboost_proba = kwargs.get('xgboost_proba')
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna().copy()
         
-        # # Define features and target
-        # X = data[selected_features]
-        # y = data['Target']
-        
-        # model_params = model_params or {'eval_metric': 'logloss', 'random_state': 42}  # add option for model_params?
-        model_params = {'eval_metric': 'logloss', 'random_state': 42}                    # add option for model_params?
-        model = XGBClassifier(**model_params)                                            # add option for model_params?
+        model = XGBClassifier(random_state=random_state)
         le = LabelEncoder()
 
         for i in range(initial_training_period, len(data), retrain_interval):
@@ -336,10 +321,6 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
             test_data = data.iloc[i:prediction_end]
             X_test = test_data[selected_features]
 
-            # Get predictions and probabilities
-            # predicted_classes = model.predict(X_test)
-            # data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(predicted_classes) # should be = to if something something = 0.5
-
             # store the probabilities for each class in separate columns
             predicted_probabilities = model.predict_proba(X_test)
             for class_index, class_name in enumerate(le.classes_):
@@ -351,14 +332,13 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        selected_features = kwargs.get('selected_features')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
         
         # Drop rows with missing values due to rolling calculations
         data = data.dropna().copy()
         
-        model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1, max_iter=mlp_max_iter)
+        model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
         scaler = StandardScaler()
         le = LabelEncoder()
 
