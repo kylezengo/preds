@@ -114,8 +114,9 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         DataFrame: Data with strategy signals and portfolio value.
         model: forcasting model, if available
     """
-    data_raw = data.copy() # Prevent modifying the original DataFrame
-
+    data_raw = data.copy() 
+    data = data.copy() # Prevent modifying the original DataFrame
+    
     og_min_date = min(data_raw['Date'])
 
     selected_features = ([x for x in list(data_raw) if x not in ['Date']] + ['RSI','MA_S','MA_L','Bollinger_Upper','Bollinger_Lower','VWAP'])
@@ -125,7 +126,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker]) # price direction (1 = up, -1 = down, 0 = stable)
 
-    # Calculate indicators based on the strategy
+    # Strategies
     if strategy == "Hold":
         data['Signal'] = 1
 

@@ -1,8 +1,10 @@
+import os
 import pandas as pd
 import requests
 import urllib.parse
 import yfinance as yf
 from datetime import datetime, date
+from dotenv import load_dotenv
 from fredapi import Fred
 
 
@@ -47,7 +49,7 @@ headers = {
 
 dat=[]
 missing=[]
-for page in sp_df['wiki_page']:
+for page in set(sp_df['wiki_page']):
     url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/{page}/daily/{sdate}/{edate}"
 
     response = requests.get(url,headers=headers)
@@ -87,10 +89,10 @@ stocks_df = stocks_df.rename_axis(None, axis=1)
 dat_list = []
 for i in sp500_tickers:
     if yf.Ticker(i).get_shares_full() is not None:
-        os = yf.Ticker(i).get_shares_full(start=start_date, end=end_date)
-        os = pd.DataFrame(os)
-        os['ticker'] = i
-        dat_list.append(os)
+        df = yf.Ticker(i).get_shares_full(start=start_date, end=end_date)
+        df = pd.DataFrame(df)
+        df['ticker'] = i
+        dat_list.append(df)
         
 os_df = pd.concat(dat_list)
 
@@ -139,7 +141,10 @@ os_df_days = pd.concat(dat_list, ignore_index=True)
 
 # Federal funds rate (not exact match to current numbers?)
 # Authentication
-fred = Fred(api_key="43aaf15f6d9c57e96bc4befee1f06859")
+load_dotenv()
+api_key = os.getenv("api_key")
+
+fred = Fred(api_key=api_key)
 
 ffr = fred.get_series('FEDFUNDS').to_frame(name='federal_funds_rate')
 
