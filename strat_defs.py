@@ -91,6 +91,50 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
     data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
+def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None):
+    model = XGBClassifier(random_state=random_state)
+    le = LabelEncoder()
+    scaler = StandardScaler()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    print("XGBoost_scaled: ",len(set(selected_features)),data.shape)
+    
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+    
+    data['Signal'] = 1
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Fit the scaler on the training data
+        scaler.fit(X_train)
+
+        # Scale training data and fit model
+        X_train_scaled = scaler.transform(X_train)
+
+        model.fit(X_train_scaled, y_train)
+
+        # Predict for the next retrain_interval days
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+
+        # store the probabilities for each class in separate columns
+        predicted_probabilities = model.predict_proba(X_test_scaled)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_xgboost_scaled_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+
+    data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
+    
+    return data
+
 def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std,
                       random_state=None, **kwargs):
     """
@@ -119,13 +163,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     
     og_min_date = min(data_raw['Date'])
 
-    selected_features = ([x for x in list(data_raw) if x not in ['Date']] + ['RSI','MA_S','MA_L','Bollinger_Upper','Bollinger_Lower','VWAP'])
+    # selected_features = ([x for x in list(data_raw) if x not in ['Date']] + ['RSI','MA_S','MA_L','Bollinger_Upper','Bollinger_Lower','VWAP'])
 
     model = None
 
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker]) # price direction (1 = up, -1 = down, 0 = stable)
-
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    
     # Strategies
     if strategy == "Hold":
         data['Signal'] = 1
@@ -261,8 +306,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
+        xgboost_proba = kwargs.get('xgboost_proba')
+        data = strategy_XGBoost_scaled(data, initial_training_period, random_state)
+
+    elif strategy == "XGBoost_scaled_og":
+        initial_training_period = kwargs.get('initial_training_period')
         retrain_interval = kwargs.get('retrain_interval')
-        
+        xgboost_proba = kwargs.get('xgboost_proba')
+        print("XGBoost_scaled_og: ",len(set(selected_features)), data.shape)
         # Drop rows with missing values due to rolling calculations
         data = data.dropna().copy()
         
@@ -273,7 +324,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         # Prepare columns
         data['Signal'] = 1
 
-        for i in range(initial_training_period, len(data), retrain_interval):
+        for i in range(initial_training_period, len(data)):
             # Train only on past data up to the current point
             train_data = data.iloc[:i]
             X_train = train_data[selected_features]
@@ -287,15 +338,21 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
             model.fit(X_train_scaled, y_train)
 
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
+            # Predict for the next day
+            prediction_end = min(i + 1, len(data))
             test_data = data.iloc[i:prediction_end]
             X_test = test_data[selected_features]
 
             # Scale test data using already fitted scaler
             X_test_scaled = scaler.transform(X_test)
 
-            data.loc[data.index[i:prediction_end], 'Signal'] = le.inverse_transform(model.predict(X_test_scaled))
+            # store the probabilities for each class in separate columns
+            predicted_probabilities = model.predict_proba(X_test_scaled)
+            for class_index, class_name in enumerate(le.classes_):
+                probability_column = f"proba_xgboost_scaled_og_{class_name}"
+                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+
+        data['Signal'] = np.where(data['proba_xgboost_scaled_og_-1.0'] > xgboost_proba, -1, 1)
 
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
