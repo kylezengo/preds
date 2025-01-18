@@ -307,7 +307,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
-        data = strategy_XGBoost_scaled(data, initial_training_period, random_state)
+        data = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state)
 
     elif strategy == "XGBoost_scaled_og":
         initial_training_period = kwargs.get('initial_training_period')

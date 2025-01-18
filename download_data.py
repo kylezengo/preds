@@ -76,7 +76,13 @@ selected_tickers = list(sp500_tickers)+["SPY"]
 
 dat_list = []
 for i in selected_tickers:
-    data = yf.download(i, start=start_date, end=end_date, progress=False)
+    data = yf.download(
+        i,
+        start=start_date,
+        end=end_date,
+        auto_adjust=False, # ?
+        progress=False
+    )
     data.columns = data.columns.get_level_values(0)
     data['ticker'] = i
     dat_list.append(data)
