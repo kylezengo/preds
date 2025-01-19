@@ -7,14 +7,15 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from xgboost import XGBClassifier
 
-
+ 
+ # Technical indicators
 def calculate_rsiW(data, ticker, target, window):
     """
     Calculate the Relative Strength Index (RSI).
     
     Parameters:
         data (DataFrame): Stock data with target prices.
-        ticker: Stock ticker
+        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
         window (int): Lookback period for RSI.
         
@@ -38,6 +39,7 @@ def calculate_rsiL(data, target, window):
     
     Parameters:
         data (DataFrame): Stock data with target prices.
+        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
         window (int): Lookback period for RSI.
         
@@ -71,7 +73,7 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        ticker: Stock ticker
+        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
         short_window (int):
         long_window (int):
@@ -91,13 +93,143 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
     data['VWAP'] = calculate_vwapW(data, ticker, target)
     return data
 
+
+# ML models
+def strategy_Prophet(data, initial_training_period, ticker, target):
+    model = Prophet(daily_seasonality=True, yearly_seasonality=True)
+
+    data_simp = data[['Date',target+"_"+ticker]]
+    data_simp = data_simp.rename(columns={'Date': 'ds',target+"_"+ticker:'y'})
+    
+    for i in range(initial_training_period, len(data)):
+        data_simp_cut = data_simp.iloc[:i]
+
+        # Fit Prophet (Prophet object can only be fit once - must instantiate a new object every time)
+        model = Prophet(daily_seasonality=True, yearly_seasonality=True)
+        model.fit(data_simp_cut)
+
+        future = model.make_future_dataframe(periods=1, include_history=False)
+        forecast = model.predict(future)
+
+        predicted_price = forecast['yhat'].iloc[0]
+        current_price = data.loc[data.index[i - 1], target+"_"+ticker]
+
+        data.loc[data.index[i], 'Signal'] = 1 if predicted_price >= current_price else -1
+    
+    return data, model
+
+def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter):
+    model = LogisticRegression(max_iter=logit_max_iter)
+    scaler = StandardScaler()
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+    
+    # Prepare columns
+    data['Signal'] = 1
+
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Fit the scaler on the training data, scale training data and fit model
+        scaler.fit(X_train)
+        X_train_scaled = scaler.transform(X_train)
+        model.fit(X_train_scaled, y_train)
+
+        # Predict for the next retrain_interval days
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+
+        # store the probabilities for each class in separate columns
+        predicted_probabilities = model.predict_proba(X_test_scaled)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_logit_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+        
+    data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
+
+    return data, model
+
+def strategy_RandomForest(data, initial_training_period, random_state=None):
+    model = RandomForestClassifier(random_state=random_state)
+    
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+    
+    # Define features and target
+    X = data[selected_features]
+    y = data['Target']
+    
+    # Prepare columns
+    data['Signal'] = 1
+
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        X_train = X.iloc[:i]
+        y_train = y.iloc[:i]
+
+        # Train the model
+        model.fit(X_train, y_train)
+
+        # Predict for the next retrain_interval days
+        prediction_end = min(i + 1, len(data))
+        
+        X_test = X.iloc[i:prediction_end]
+        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
+
+    return data, model
+
+def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=None):
+    model = XGBClassifier(random_state=random_state)
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Train the model
+        model.fit(X_train, y_train)
+
+        # Predict for the next retrain_interval days
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # store the probabilities for each class in separate columns
+        predicted_probabilities = model.predict_proba(X_test)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_xgboost_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+        
+    data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
+
+    return data, model
+
 def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None):
     model = XGBClassifier(random_state=random_state)
     le = LabelEncoder()
     scaler = StandardScaler()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
-    print("XGBoost_scaled: ",len(set(selected_features)),data.shape)
     
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -133,8 +265,52 @@ def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random
 
     data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
     
-    return data
+    return data, model
 
+def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
+    model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
+    scaler = StandardScaler()
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Fit the scaler on the training data
+        scaler.fit(X_train)
+
+        # Scale training data and fit model
+        X_train_scaled = scaler.transform(X_train)
+
+        model.fit(X_train_scaled, y_train)
+
+        # Predict for the next retrain_interval days
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+
+        # store the probabilities for each class in separate columns
+        predicted_probabilities = model.predict_proba(X_test_scaled)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_mlp_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+        
+    data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
+
+    return data, model
+
+
+#
 def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std,
                       random_state=None, **kwargs):
     """
@@ -207,234 +383,41 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         data.loc[data[target+"_"+ticker] > data['High_Max'], 'Signal'] = 1  # Breakout above
         data.loc[data[target+"_"+ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
-    elif strategy == 'Prophet':
+    elif strategy == "Prophet":
         initial_training_period = kwargs.get('initial_training_period')
-
-        data_simp = data[['Date',target+"_"+ticker]]
-        data_simp = data_simp.rename(columns={'Date': 'ds',target+"_"+ticker:'y'})
-          
-        # Prepare columns
-        data['Signal'] = 0
-        
-        for i in range(initial_training_period, len(data)):
-            data_simp_cut = data_simp.iloc[:i]
-
-            # Initialize and fit Prophet
-            model = Prophet(daily_seasonality=True, yearly_seasonality=True)
-            model.fit(data_simp_cut)
-
-            future = model.make_future_dataframe(periods=1, include_history=False)
-            forecast = model.predict(future)
-
-            predicted_price = forecast['yhat'].iloc[0]
-            current_price = data.loc[data.index[i - 1], target+"_"+ticker]
-
-            data.loc[data.index[i], 'Signal'] = 1 if predicted_price > current_price else -1
+        data, model = strategy_Prophet(data, initial_training_period, ticker, target)
 
     elif strategy == "Logit":
         initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
-        logit_max_iter = kwargs.get('logit_max_iter')
         logit_proba = kwargs.get('logit_proba')
-
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna().copy()
-                
-        model = LogisticRegression(max_iter=logit_max_iter)
-        scaler = StandardScaler()
-        le = LabelEncoder()
-
-        # Prepare columns
-        data['Signal'] = 1
-
-        for i in range(initial_training_period, len(data), retrain_interval):
-            # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[selected_features]
-            y_train = le.fit_transform( train_data['Target'] )
-
-            # Fit the scaler on the training data, scale training data and fit model
-            scaler.fit(X_train)
-            X_train_scaled = scaler.transform(X_train)
-            model.fit(X_train_scaled, y_train)
-
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[selected_features]
-
-            # Scale test data using already fitted scaler
-            X_test_scaled = scaler.transform(X_test)
-
-            # store the probabilities for each class in separate columns
-            predicted_probabilities = model.predict_proba(X_test_scaled)
-            for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_logit_{class_name}"
-                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-            
-        data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
-
-    elif strategy =="RandomForest":
+        logit_max_iter = kwargs.get('logit_max_iter')
+        data, model = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter)
+    
+    elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
-        
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna().copy()
-        
-        # Define features and target
-        X = data[selected_features]
-        y = data['Target']
+        data, model = strategy_RandomForest(data, initial_training_period, random_state)
 
-        model = RandomForestClassifier(random_state=random_state)
-        
-        # Prepare columns
-        data['Signal'] = 1
-
-        for i in range(initial_training_period, len(data), retrain_interval):
-            # Train only on past data up to the current point
-            X_train = X.iloc[:i]
-            y_train = y.iloc[:i]
-
-            # Train the model
-            model.fit(X_train, y_train)
-
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
-            
-            X_test = X.iloc[i:prediction_end]
-            data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
+    elif strategy == "XGBoost":
+        initial_training_period = kwargs.get('initial_training_period')
+        xgboost_proba = kwargs.get('xgboost_proba')
+        data, model = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state)
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
-        data = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state)
-
-    elif strategy == "XGBoost_scaled_og":
-        initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
-        xgboost_proba = kwargs.get('xgboost_proba')
-        print("XGBoost_scaled_og: ",len(set(selected_features)), data.shape)
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna().copy()
-        
-        model = XGBClassifier(random_state=random_state)
-        le = LabelEncoder()
-        scaler = StandardScaler()
-        
-        # Prepare columns
-        data['Signal'] = 1
-
-        for i in range(initial_training_period, len(data)):
-            # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[selected_features]
-            y_train = le.fit_transform( train_data['Target'] )
-
-            # Fit the scaler on the training data
-            scaler.fit(X_train)
-
-            # Scale training data and fit model
-            X_train_scaled = scaler.transform(X_train)
-
-            model.fit(X_train_scaled, y_train)
-
-            # Predict for the next day
-            prediction_end = min(i + 1, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[selected_features]
-
-            # Scale test data using already fitted scaler
-            X_test_scaled = scaler.transform(X_test)
-
-            # store the probabilities for each class in separate columns
-            predicted_probabilities = model.predict_proba(X_test_scaled)
-            for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_xgboost_scaled_og_{class_name}"
-                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-
-        data['Signal'] = np.where(data['proba_xgboost_scaled_og_-1.0'] > xgboost_proba, -1, 1)
-
-    elif strategy == "XGBoost":
-        initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
-        xgboost_proba = kwargs.get('xgboost_proba')
-        
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna().copy()
-        
-        model = XGBClassifier(random_state=random_state)
-        le = LabelEncoder()
-
-        for i in range(initial_training_period, len(data), retrain_interval):
-            # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[selected_features]
-            y_train = le.fit_transform( train_data['Target'] )
-
-            # Train the model
-            model.fit(X_train, y_train)
-
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[selected_features]
-
-            # store the probabilities for each class in separate columns
-            predicted_probabilities = model.predict_proba(X_test)
-            for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_xgboost_{class_name}"
-                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-            
-        data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
+        data, model = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state)
 
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
-        retrain_interval = kwargs.get('retrain_interval')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
-        
-        # Drop rows with missing values due to rolling calculations
-        data = data.dropna().copy()
-        
-        model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
-        scaler = StandardScaler()
-        le = LabelEncoder()
-
-        for i in range(initial_training_period, len(data), retrain_interval):
-            # Train only on past data up to the current point
-            train_data = data.iloc[:i]
-            X_train = train_data[selected_features]
-            y_train = le.fit_transform( train_data['Target'] )
-
-            # Fit the scaler on the training data
-            scaler.fit(X_train)
-
-            # Scale training data and fit model
-            X_train_scaled = scaler.transform(X_train)
-
-            model.fit(X_train_scaled, y_train)
-
-            # Predict for the next retrain_interval days
-            prediction_end = min(i + retrain_interval, len(data))
-            test_data = data.iloc[i:prediction_end]
-            X_test = test_data[selected_features]
-
-            # Scale test data using already fitted scaler
-            X_test_scaled = scaler.transform(X_test)
-
-            # store the probabilities for each class in separate columns
-            predicted_probabilities = model.predict_proba(X_test_scaled)
-            for class_index, class_name in enumerate(le.classes_):
-                probability_column = f"proba_mlp_{class_name}"
-                data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-            
-        data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
+        data, model = strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
         pass
 
-    elif strategy == 'Perfection':
+    elif strategy == "Perfection":
         data['Signal'] = 1
         data.loc[data['Target']==-1, 'Signal'] = -1
 
