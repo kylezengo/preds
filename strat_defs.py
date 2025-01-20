@@ -118,8 +118,8 @@ def strategy_Prophet(data, initial_training_period, ticker, target):
     
     return data, model
 
-def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter):
-    model = LogisticRegression(max_iter=logit_max_iter)
+def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, n_jobs=None):
+    model = LogisticRegression(max_iter=logit_max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
 
@@ -142,7 +142,7 @@ def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter):
         X_train_scaled = scaler.transform(X_train)
         model.fit(X_train_scaled, y_train)
 
-        # Predict for the next retrain_interval days
+        # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
@@ -160,8 +160,8 @@ def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter):
 
     return data, model
 
-def strategy_RandomForest(data, initial_training_period, random_state=None):
-    model = RandomForestClassifier(random_state=random_state)
+def strategy_RandomForest(data, initial_training_period, random_state=None, njobs=None):
+    model = RandomForestClassifier(random_state=random_state, n_jobs=njobs)
     
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
 
@@ -183,7 +183,7 @@ def strategy_RandomForest(data, initial_training_period, random_state=None):
         # Train the model
         model.fit(X_train, y_train)
 
-        # Predict for the next retrain_interval days
+        # Predict for the next day
         prediction_end = min(i + 1, len(data))
         
         X_test = X.iloc[i:prediction_end]
@@ -191,8 +191,8 @@ def strategy_RandomForest(data, initial_training_period, random_state=None):
 
     return data, model
 
-def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=None):
-    model = XGBClassifier(random_state=random_state)
+def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+    model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
@@ -209,7 +209,7 @@ def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=
         # Train the model
         model.fit(X_train, y_train)
 
-        # Predict for the next retrain_interval days
+        # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
@@ -224,8 +224,8 @@ def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=
 
     return data, model
 
-def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None):
-    model = XGBClassifier(random_state=random_state)
+def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+    model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
     scaler = StandardScaler()
 
@@ -249,7 +249,7 @@ def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random
 
         model.fit(X_train_scaled, y_train)
 
-        # Predict for the next retrain_interval days
+        # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
@@ -291,7 +291,7 @@ def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
         model.fit(X_train_scaled, y_train)
 
-        # Predict for the next retrain_interval days
+        # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
@@ -339,13 +339,10 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     
     og_min_date = min(data_raw['Date'])
 
-    # selected_features = ([x for x in list(data_raw) if x not in ['Date']] + ['RSI','MA_S','MA_L','Bollinger_Upper','Bollinger_Lower','VWAP'])
-
     model = None
 
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker]) # price direction (1 = up, -1 = down, 0 = stable)
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
     
     # Strategies
     if strategy == "Hold":
@@ -391,21 +388,25 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         initial_training_period = kwargs.get('initial_training_period')
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
-        data, model = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter)
+        n_jobs = kwargs.get('n_jobs')
+        data, model = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, n_jobs)
     
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
-        data, model = strategy_RandomForest(data, initial_training_period, random_state)
+        n_jobs = kwargs.get('n_jobs')
+        data, model = strategy_RandomForest(data, initial_training_period, random_state, n_jobs)
 
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
-        data, model = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state)
+        n_jobs = kwargs.get('n_jobs')
+        data, model = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
-        data, model = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state)
+        n_jobs = kwargs.get('n_jobs')
+        data, model = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
