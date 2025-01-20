@@ -118,8 +118,8 @@ def strategy_Prophet(data, initial_training_period, ticker, target):
     
     return data, model
 
-def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, n_jobs=None):
-    model = LogisticRegression(max_iter=logit_max_iter, n_jobs=n_jobs)
+def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs=None):
+    model = LogisticRegression(C=logit_C, max_iter=logit_max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
 
@@ -158,7 +158,9 @@ def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, n
         
     data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
 
-    return data, model
+    score = model.score(X_train_scaled, y_train)
+
+    return data, model, score
 
 def strategy_RandomForest(data, initial_training_period, random_state=None, njobs=None):
     model = RandomForestClassifier(random_state=random_state, n_jobs=njobs)
@@ -189,7 +191,9 @@ def strategy_RandomForest(data, initial_training_period, random_state=None, njob
         X_test = X.iloc[i:prediction_end]
         data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
-    return data, model
+    score = model.score(X_train, y_train)
+
+    return data, model, score
 
 def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
@@ -222,7 +226,9 @@ def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=
         
     data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
 
-    return data, model
+    score = model.score(X_train, y_train)
+
+    return data, model, score
 
 def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
@@ -265,7 +271,9 @@ def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random
 
     data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
     
-    return data, model
+    score = model.score(X_train_scaled, y_train)
+
+    return data, model, score
 
 def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
     model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
@@ -307,7 +315,9 @@ def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_
         
     data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
 
-    return data, model
+    score = model.score(X_train, y_train)
+
+    return data, model, score
 
 
 #
@@ -340,6 +350,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     og_min_date = min(data_raw['Date'])
 
     model = None
+    score = None
 
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker]) # price direction (1 = up, -1 = down, 0 = stable)
@@ -388,31 +399,32 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         initial_training_period = kwargs.get('initial_training_period')
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
+        logit_C = kwargs.get('logit_C')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, n_jobs)
+        data, model, score = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs)
     
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_RandomForest(data, initial_training_period, random_state, n_jobs)
+        data, model, score = strategy_RandomForest(data, initial_training_period, random_state, n_jobs)
 
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
-        data, model = strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
+        data, model, score = strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
@@ -450,4 +462,4 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     data['Strategy_Return'] = data['signal_adj'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
-    return data, model
+    return data, model, score
