@@ -380,6 +380,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     Returns:
         DataFrame: Data with strategy signals and portfolio value.
         model: forcasting model, if available
+        score: model score, if available
     """
     data_raw = data.copy()
     data = data.copy() # Prevent modifying the original DataFrame
