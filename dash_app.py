@@ -27,7 +27,7 @@ app.layout = html.Div(
             id='ticker-input',
             value='SPY'
         ),
-        html.Label("Short Window"),
+        html.Label(" Short Window"),
         dcc.Input(
             id='short_window-input',
             type='number',
@@ -57,6 +57,18 @@ app.layout = html.Div(
             type='number',
             value=14
         ),
+        html.Label(" Bollinger moving average"),
+        dcc.Input(
+            id='bma-input',
+            type='number',
+            value=20
+        ),
+        html.Label(" Bollinger num Std"),
+        dcc.Input(
+            id='bstd-input',
+            type='number',
+            value=2
+        ),
         dcc.Graph(
             id='my_fig',
             style={'height': '100%'}
@@ -72,10 +84,12 @@ app.layout = html.Div(
      Input('long_window-input', 'value'),
      Input('oversold-input', 'value'),
      Input('overbought-input', 'value'),
-     Input('rsi_window-input', 'value')]
+     Input('rsi_window-input', 'value'),
+     Input('bma-input', 'value'),
+     Input('bstd-input', 'value')]
 )
 
-def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window):
+def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window, bollinger_window, bollinger_num_std):
     """
     Update graph
     """
@@ -86,8 +100,22 @@ def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_wi
     chart_df['SMA_Long'] = chart_df['Adj Close'].rolling(window=long_window).mean()
     chart_df['RSI'] = strat_defs.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
 
+    chart_df['MA_B'] = chart_df['Adj Close'].rolling(window=bollinger_window).mean()
+    chart_df['Bollinger_Upper'] = chart_df['MA_B'] + bollinger_num_std * chart_df['Adj Close'].rolling(window=bollinger_window).std()
+    chart_df['Bollinger_Lower'] = chart_df['MA_B'] - bollinger_num_std * chart_df['Adj Close'].rolling(window=bollinger_window).std()
+
     fig_sub = make_subplots(rows=2, cols=1,
                             shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.7,0.3])
+
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['Bollinger_Upper'],mode='lines',
+                                 line_color='rgba(177, 208, 252, 0.9)',
+                                 name='Bollinger Upper'), row=1, col=1)
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['Bollinger_Lower'],mode='lines',
+                                 line_color='rgba(177, 208, 252, 0.9)', fill='tonexty',
+                                 name='Bollinger Lower'), row=1, col=1)
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['MA_B'],mode='lines',
+                                 line_color='rgba(177, 208, 252, 0.9)',
+                                 name='Bollinger moving average'), row=1, col=1)
 
     fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['Adj Close'],mode='lines',
                                  name=f'{ticker} Adj Close'), row=1, col=1)
@@ -104,6 +132,7 @@ def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_wi
     fig_sub.add_hline(y=overbought, line_dash="dash", line_color="red",
                       label={'text':f'Overbought ({overbought})','textposition':"end"},
                       row=2, col=1)
+
     fig_sub.update_layout(title=f'Daily {ticker} Adj Close',
                           legend={'yanchor':"top",'y': 0.98,'xanchor':"left",'x':0.01})
 
