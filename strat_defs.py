@@ -41,7 +41,6 @@ def calculate_rsi_long(data, target, window):
     
     Parameters:
         data (DataFrame): Stock data with target prices.
-        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
         window (int): Lookback period for RSI.
         
@@ -81,7 +80,6 @@ def calculate_vwap_long(data, target):
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
 
     Returns:
@@ -439,9 +437,9 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         initial_training_period = kwargs.get('initial_training_period')
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
-        logit_C = kwargs.get('logit_C')
+        logit_c = kwargs.get('logit_c')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs)
+        data, model, score = strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs)
 
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
