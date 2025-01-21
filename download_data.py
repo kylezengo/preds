@@ -107,7 +107,7 @@ for i in selected_tickers:
     data.columns = data.columns.get_level_values(0)
     data['ticker'] = i
     dat_list.append(data)
-    
+
 stocks_df = pd.concat(dat_list)
 stocks_df = stocks_df.reset_index()
 stocks_df = stocks_df.rename_axis(None, axis=1)
@@ -187,8 +187,7 @@ date_ranges = []
 while current_start_date <= end_date:
     current_end_date = current_start_date + timedelta(days=29)
 
-    if current_end_date > end_date:
-        current_end_date = end_date
+    current_end_date = min(current_end_date, end_date)
 
     date_ranges.append({'start_date': current_start_date.strftime("%Y-%m-%d")
                         ,'end_date': current_end_date.strftime("%Y-%m-%d")})

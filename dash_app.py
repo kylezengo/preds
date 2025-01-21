@@ -1,12 +1,15 @@
 
-import pandas as pd
-import plotly.graph_objects as go
+"""Create an interactive plot in a browser window"""
+
 import glob
 import os
-from plotly.subplots import make_subplots
-from dash import Dash, html, dcc, callback, Output, Input
 
-import strat_defs # custom functions from github 
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from dash import Dash, html, dcc, Output, Input
+
+import strat_defs # custom functions from github
 
 app = Dash()
 
@@ -17,7 +20,7 @@ stocks_df = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
 
 # App layout
-app.layout = html.Div(     
+app.layout = html.Div(
     [
         html.Label("Ticker"),
         dcc.Input(
@@ -73,30 +76,36 @@ app.layout = html.Div(
 )
 
 def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window):
-    ticker = ticker
-    short_window = short_window
-    long_window = long_window
-    oversold = oversold
-    overbought = overbought
-    rsi_window = rsi_window
-
-    df_for_chart = stocks_df.loc[stocks_df['ticker']==ticker].reset_index(drop=True)
+    """
+    Update graph
+    """
+    chart_df = stocks_df.loc[stocks_df['ticker']==ticker].reset_index(drop=True)
 
     # Daily prices with moving averages and RSI
-    df_for_chart['SMA_Short'] = df_for_chart['Adj Close'].rolling(window=short_window).mean()
-    df_for_chart['SMA_Long'] = df_for_chart['Adj Close'].rolling(window=long_window).mean()
-    df_for_chart['RSI'] = strat_defs.calculate_rsiL(df_for_chart, 'Adj Close', window=rsi_window)
+    chart_df['SMA_Short'] = chart_df['Adj Close'].rolling(window=short_window).mean()
+    chart_df['SMA_Long'] = chart_df['Adj Close'].rolling(window=long_window).mean()
+    chart_df['RSI'] = strat_defs.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
 
-    fig_sub = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.02,row_heights=[0.7,0.3])
+    fig_sub = make_subplots(rows=2, cols=1,
+                            shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.7,0.3])
 
-    fig_sub.add_trace(go.Scatter(x=df_for_chart['Date'], y=df_for_chart['Adj Close'],mode='lines', name=f'{ticker} Adj Close'), row=1, col=1)
-    fig_sub.add_trace(go.Scatter(x=df_for_chart['Date'], y=df_for_chart['SMA_Short'],mode='lines', name=f'SMA {short_window}'), row=1, col=1)
-    fig_sub.add_trace(go.Scatter(x=df_for_chart['Date'], y=df_for_chart['SMA_Long'],mode='lines', name=f'SMA {long_window}'), row=1, col=1)
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['Adj Close'],mode='lines',
+                                 name=f'{ticker} Adj Close'), row=1, col=1)
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['SMA_Short'],mode='lines',
+                                 name=f'SMA {short_window}'), row=1, col=1)
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['SMA_Long'],mode='lines',
+                                 name=f'SMA {long_window}'), row=1, col=1)
 
-    fig_sub.add_trace(go.Scatter(x=df_for_chart['Date'], y=df_for_chart['RSI'],mode='lines', name='RSI'), row=2, col=1)
-    fig_sub.add_hline(y=oversold,line_dash="dash", line_color="green",label=dict(text=f'Oversold ({oversold})',textposition="end"), row=2, col=1)
-    fig_sub.add_hline(y=overbought, line_dash="dash", line_color="red",label=dict(text=f'Overbought ({overbought})',textposition="end"), row=2, col=1)
-    fig_sub.update_layout(title=f'Daily {ticker} Adj Close', legend=dict(yanchor="top",y=0.98, xanchor="left", x=0.01))
+    fig_sub.add_trace(go.Scatter(x=chart_df['Date'], y=chart_df['RSI'],mode='lines',name='RSI'),
+                      row=2, col=1)
+    fig_sub.add_hline(y=oversold,line_dash="dash", line_color="green",
+                      label={'text':f'Oversold ({oversold})','textposition':"end"},
+                      row=2, col=1)
+    fig_sub.add_hline(y=overbought, line_dash="dash", line_color="red",
+                      label={'text':f'Overbought ({overbought})','textposition':"end"},
+                      row=2, col=1)
+    fig_sub.update_layout(title=f'Daily {ticker} Adj Close',
+                          legend={'yanchor':"top",'y': 0.98,'xanchor':"left",'x':0.01})
 
     return fig_sub
 

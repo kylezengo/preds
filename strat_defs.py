@@ -1,3 +1,5 @@
+"""Define forecasting strategies"""
+
 import pandas as pd
 import numpy as np
 from prophet import Prophet
@@ -7,9 +9,9 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from xgboost import XGBClassifier
 
- 
+
  # Technical indicators
-def calculate_rsiW(data, ticker, target, window):
+def calculate_rsi_wide(data, ticker, target, window):
     """
     Calculate the Relative Strength Index (RSI).
     
@@ -25,15 +27,15 @@ def calculate_rsiW(data, ticker, target, window):
     delta = data[target+"_"+ticker].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
-    
+
     avg_gain = pd.Series(gain).rolling(window=window).mean()
     avg_loss = pd.Series(loss).rolling(window=window).mean()
-    
+
     rs = avg_gain / avg_loss
-    
+
     return 100 - (100 / (1 + rs))
 
-def calculate_rsiL(data, target, window):
+def calculate_rsi_long(data, target, window):
     """
     Calculate the Relative Strength Index (RSI).
     
@@ -49,20 +51,42 @@ def calculate_rsiL(data, target, window):
     delta = data[target].diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
-    
+
     avg_gain = pd.Series(gain).rolling(window=window).mean()
     avg_loss = pd.Series(loss).rolling(window=window).mean()
-    
+
     rs = avg_gain / avg_loss
-    
+
     return 100 - (100 / (1 + rs))
 
-def calculate_vwapW(data, ticker, target):
+def calculate_vwap_wide(data, ticker, target):
+    """
+    Calculate Volume Weighted Average Price
+
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        ticker (str): Stock ticker
+        target (str): column to predict (usually Adj Close)
+
+    Returns:
+       
+    """
     cumulative_volume = data["Volume_"+ticker].cumsum()
     cumulative_price_volume = (data[target+"_"+ticker] * data["Volume_"+ticker]).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_vwapL(data, target):
+def calculate_vwap_long(data, target):
+    """
+    Calculate Volume Weighted Average Price
+
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        ticker (str): Stock ticker
+        target (str): column to predict (usually Adj Close)
+
+    Returns:
+       
+    """
     cumulative_volume = data['Volume'].cumsum()
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
@@ -84,23 +108,26 @@ def calculate_technical_indicators(data, ticker, target, short_window, long_wind
     Returns:
         DataFrame: Data with strategy signals and portfolio value.
     """
-    data['RSI'] = calculate_rsiW(data, ticker, target, window=rsi_window)
+    data['RSI'] = calculate_rsi_wide(data, ticker, target, window=rsi_window)
     data['MA_S'] = data[target+"_"+ticker].rolling(window=short_window).mean()
     data['MA_L'] = data[target+"_"+ticker].rolling(window=long_window).mean()
     data['MA_B'] = data[target+"_"+ticker].rolling(window=bollinger_window).mean()
     data['Bollinger_Upper'] = data['MA_B'] + bollinger_num_std * data[target+"_"+ticker].rolling(window=bollinger_window).std()
     data['Bollinger_Lower'] = data['MA_B'] - bollinger_num_std * data[target+"_"+ticker].rolling(window=bollinger_window).std()
-    data['VWAP'] = calculate_vwapW(data, ticker, target)
+    data['VWAP'] = calculate_vwap_wide(data, ticker, target)
     return data
 
 
 # ML models
-def strategy_Prophet(data, initial_training_period, ticker, target):
+def strategy_prophet(data, initial_training_period, ticker, target):
+    """
+    Calculate forecast with Facebook Prophet  
+    """
     model = Prophet(daily_seasonality=True, yearly_seasonality=True)
 
     data_simp = data[['Date',target+"_"+ticker]]
     data_simp = data_simp.rename(columns={'Date': 'ds',target+"_"+ticker:'y'})
-    
+
     for i in range(initial_training_period, len(data)):
         data_simp_cut = data_simp.iloc[:i]
 
@@ -118,18 +145,18 @@ def strategy_Prophet(data, initial_training_period, ticker, target):
     
     return data, model
 
-def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs=None):
-    model = LogisticRegression(C=logit_C, max_iter=logit_max_iter, n_jobs=n_jobs)
+def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
+    """
+    Calculate forecast with logistic regression  
+    """
+    model = LogisticRegression(C=logit_c, max_iter=logit_max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
-    
+
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
-    
-    # Prepare columns
-    data['Signal'] = 1
 
     for i in range(initial_training_period, len(data)):
         # Train only on past data up to the current point
@@ -155,25 +182,28 @@ def strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, l
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_logit_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-        
+
     data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
 
     score = model.score(X_train_scaled, y_train)
 
     return data, model, score
 
-def strategy_RandomForest(data, initial_training_period, random_state=None, njobs=None):
+def strategy_random_forest(data, initial_training_period, random_state=None, njobs=None):
+    """
+    Calculate forecast with random forest  
+    """
     model = RandomForestClassifier(random_state=random_state, n_jobs=njobs)
-    
+
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
-    
+
     # Define features and target
     X = data[selected_features]
     y = data['Target']
-    
+
     # Prepare columns
     data['Signal'] = 1
 
@@ -187,7 +217,7 @@ def strategy_RandomForest(data, initial_training_period, random_state=None, njob
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
-        
+
         X_test = X.iloc[i:prediction_end]
         data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
 
@@ -195,12 +225,15 @@ def strategy_RandomForest(data, initial_training_period, random_state=None, njob
 
     return data, model, score
 
-def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+def strategy_xgboost(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+    """
+    Calculate forecast with XGBoost  
+    """
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
-    
+
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
@@ -223,24 +256,26 @@ def strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state=
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_xgboost_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-        
+
     data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
 
     score = model.score(X_train, y_train)
 
     return data, model, score
 
-def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+    """
+    Calculate forecast with XGBoost scaled
+    """
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
     scaler = StandardScaler()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
-    
+
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
-    
-    data['Signal'] = 1
+
     for i in range(initial_training_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
@@ -270,12 +305,15 @@ def strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random
             data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
 
     data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
-    
+
     score = model.score(X_train_scaled, y_train)
 
     return data, model, score
 
-def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
+def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
+    """
+    Calculate forecast with MLP  
+    """
     model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
     scaler = StandardScaler()
     le = LabelEncoder()
@@ -312,7 +350,7 @@ def strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_mlp_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
-        
+
     data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
 
     score = model.score(X_train, y_train)
@@ -344,17 +382,17 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         DataFrame: Data with strategy signals and portfolio value.
         model: forcasting model, if available
     """
-    data_raw = data.copy() 
+    data_raw = data.copy()
     data = data.copy() # Prevent modifying the original DataFrame
-    
+
     og_min_date = min(data_raw['Date'])
 
     model = None
     score = None
 
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
-    data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker]) # price direction (1 = up, -1 = down, 0 = stable)
-    
+    data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
+
     # Strategies
     if strategy == "Hold":
         data['Signal'] = 1
@@ -381,7 +419,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == 'Bollinger':
         data['Signal'] = 1
         data.loc[data[target+"_"+ticker] > data['Bollinger_Upper'], 'Signal'] = -1  # Sell
- 
+
     elif strategy == 'Breakout':
         breakout_window = kwargs.get('breakout_window')
 
@@ -393,7 +431,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
     elif strategy == "Prophet":
         initial_training_period = kwargs.get('initial_training_period')
-        data, model = strategy_Prophet(data, initial_training_period, ticker, target)
+        data, model = strategy_prophet(data, initial_training_period, ticker, target)
 
     elif strategy == "Logit":
         initial_training_period = kwargs.get('initial_training_period')
@@ -401,30 +439,30 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_C = kwargs.get('logit_C')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_Logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs)
-    
+        data, model, score = strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_C, n_jobs)
+
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_RandomForest(data, initial_training_period, random_state, n_jobs)
+        data, model, score = strategy_random_forest(data, initial_training_period, random_state, n_jobs)
 
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_XGBoost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_xgboost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_XGBoost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
 
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
-        data, model, score = strategy_MLP(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
+        data, model, score = strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
@@ -436,7 +474,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
-    
+
     # Stack on older data where had a training period, assume held stock during that time
     if min(data['Date']) != og_min_date:
         data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
@@ -455,9 +493,9 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
             prev=0
         else:
             signal_adj.append(prev)
-            
+
     data['signal_adj'] = signal_adj
-    
+
     data['Daily_Return'] = data[target+"_"+ticker].pct_change()
     data['Strategy_Return'] = data['signal_adj'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
