@@ -130,7 +130,7 @@ os_df = os_df.rename(columns={0: 'outstanding_shares'})
 os_df = os_df.groupby(['os_report_datetime','os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Group to dates
-# is mean correct? or should we take last value? (would only matter if there are duplicate dates above)
+# is mean correct? or should we take last value? only matters if there are duplicate dates above
 os_df_date_tick = os_df.groupby(['os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Set outstanding shares for each day

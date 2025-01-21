@@ -91,7 +91,8 @@ def calculate_vwap_long(data, target):
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std):
+def calculate_technical_indicators(data, ticker, target, short_window, long_window,
+                                   rsi_window, bollinger_window, bollinger_num_std):
     """
     Calculate technical indicators for the dataset.
 
@@ -131,7 +132,7 @@ def strategy_prophet(data, initial_training_period, ticker, target):
     for i in range(initial_training_period, len(data)):
         data_simp_cut = data_simp.iloc[:i]
 
-        # Fit Prophet (Prophet object can only be fit once - must instantiate a new object every time)
+        # Prophet object can only be fit once - must instantiate a new object every time
         model = Prophet(daily_seasonality=True, yearly_seasonality=True)
         model.fit(data_simp_cut)
 
@@ -142,7 +143,7 @@ def strategy_prophet(data, initial_training_period, ticker, target):
         current_price = data.loc[data.index[i - 1], target+"_"+ticker]
 
         data.loc[data.index[i], 'Signal'] = 1 if predicted_price >= current_price else -1
-    
+
     return data, model
 
 def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
@@ -178,10 +179,10 @@ def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, l
         X_test_scaled = scaler.transform(X_test)
 
         # store the probabilities for each class in separate columns
-        predicted_probabilities = model.predict_proba(X_test_scaled)
+        pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_logit_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
     data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
 
@@ -252,10 +253,10 @@ def strategy_xgboost(data, initial_training_period, xgboost_proba, random_state=
         X_test = test_data[selected_features]
 
         # store the probabilities for each class in separate columns
-        predicted_probabilities = model.predict_proba(X_test)
+        pred_probs = model.predict_proba(X_test)
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_xgboost_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
     data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
 
@@ -299,10 +300,10 @@ def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random
         X_test_scaled = scaler.transform(X_test)
 
         # store the probabilities for each class in separate columns
-        predicted_probabilities = model.predict_proba(X_test_scaled)
+        pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_xgboost_scaled_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
     data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
 
@@ -346,10 +347,10 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
         X_test_scaled = scaler.transform(X_test)
 
         # store the probabilities for each class in separate columns
-        predicted_probabilities = model.predict_proba(X_test_scaled)
+        pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
             probability_column = f"proba_mlp_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = predicted_probabilities[:, class_index]
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
     data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
 
@@ -359,8 +360,8 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
 
 #
-def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std,
-                      random_state=None, **kwargs):
+def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window,
+                      rsi_window, bollinger_window, bollinger_num_std, random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
@@ -390,7 +391,8 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     model = None
     score = None
 
-    data = calculate_technical_indicators(data, ticker, target, short_window, long_window, rsi_window, bollinger_window, bollinger_num_std)
+    data = calculate_technical_indicators(data, ticker, target, short_window, long_window,
+                                          rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
 
     # Strategies
