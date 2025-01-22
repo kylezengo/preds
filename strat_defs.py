@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -137,11 +138,11 @@ def strategy_prophet(data, initial_training_period, ticker, target):
         future = model.make_future_dataframe(periods=1, include_history=False)
         forecast = model.predict(future)
 
-        predicted_price = forecast['yhat'].iloc[0]
+        predicted_price_tomorrow = forecast['yhat'].iloc[0]
         current_price = data.loc[data.index[i - 1], target+"_"+ticker]
 
-        data.loc[data.index[i-1], 'predicted_price'] = predicted_price
-        data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price >= current_price else -1
+        data.loc[data.index[i-1], 'predicted_price_tomorrow'] = predicted_price_tomorrow
+        data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price_tomorrow >= current_price else -1
 
     return data, model
 
@@ -188,6 +189,55 @@ def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, l
     score = model.score(X_train_scaled, y_train)
 
     return data, model, score
+
+def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
+    """
+    Calculate forecast with logistic regression  
+    """
+    model = LogisticRegression(C=logit_c, max_iter=logit_max_iter, n_jobs=n_jobs)
+    scaler = StandardScaler()
+    le = LabelEncoder()
+    pca = PCA()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_training_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Fit the scaler on the training data, scale training data and fit model
+        scaler.fit(X_train)
+        X_train_scaled = scaler.transform(X_train)
+
+        pca.fit(X_train_scaled)
+        X_train_pca = pca.transform(X_train_scaled)
+        model.fit(X_train_pca, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+        X_test_pca = pca.transform(X_test_scaled)
+
+        # store the probabilities for each class in separate columns
+        pred_probs = model.predict_proba(X_test_pca)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_logit_pca_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+    data['Signal'] = np.where(data['proba_logit_pca_-1.0'] > logit_proba, -1, 1)
+
+    # score = model.score(X_test_pca, y_train)
+
+    return data, model#, score
 
 def strategy_random_forest(data, initial_training_period, random_state=None, njobs=None):
     """
@@ -442,6 +492,14 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_c = kwargs.get('logit_c')
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs)
+
+    elif strategy == "Logit_PCA":
+        initial_training_period = kwargs.get('initial_training_period')
+        logit_proba = kwargs.get('logit_proba')
+        logit_max_iter = kwargs.get('logit_max_iter')
+        logit_c = kwargs.get('logit_c')
+        n_jobs = kwargs.get('n_jobs')
+        data, model = strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs)
 
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
