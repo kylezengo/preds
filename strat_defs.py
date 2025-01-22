@@ -190,14 +190,14 @@ def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, l
 
     return data, model, score
 
-def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
+def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs=None):
     """
     Calculate forecast with logistic regression  
     """
     model = LogisticRegression(C=logit_c, max_iter=logit_max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
-    pca = PCA()
+    pca = PCA(n_components=logit_pca_n_components)
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
 
@@ -498,8 +498,9 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_c = kwargs.get('logit_c')
+        logit_pca_n_components = kwargs.get('logit_pca_n_components')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs)
+        data, model = strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
 
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
