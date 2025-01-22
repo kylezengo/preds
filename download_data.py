@@ -15,8 +15,9 @@ from fredapi import Fred
 load_dotenv()
 fred_api_key = os.getenv("fred_api_key")
 noaa_api_key = os.getenv("noaa_api_key")
+wiki_user_agent = os.getenv("wiki_user_agent")
 
-start_date = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
+START_DATE = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
 end_date = datetime.today().strftime('%Y-%m-%d')
 
 # Get list of S&P 500 tickers from Wikipedia page
@@ -48,17 +49,17 @@ sp_df.loc[sp_df['wiki_page']=='Travelers+Companies+%28The%29','wiki_page'] = "Th
 sp_df.loc[sp_df['wiki_page']=='Walt+Disney+Company+%28The%29','wiki_page'] = "The_Walt_Disney_Company"
 
 # Get daily wikipedia pageviews for each company
-sdate="20150701" # earliest date is"20150701"
-edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
+WIKI_SDATE="20150701" # earliest date is"20150701"
+wiki_edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
 
 headers = {
-    "User-Agent": "zengokp@gmail.com"
+    "User-Agent": wiki_user_agent
 }
 
 dat=[]
 missing=[]
 for page in set(sp_df['wiki_page']):
-    url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/{page}/daily/{sdate}/{edate}"
+    url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/{page}/daily/{WIKI_SDATE}/{wiki_edate}"
 
     try:
         response = requests.get(url, headers=headers, timeout=20)
@@ -99,7 +100,7 @@ dat_list = []
 for i in selected_tickers:
     data = yf.download(
         i,
-        start=start_date,
+        start=START_DATE,
         end=end_date,
         auto_adjust=False, # ?
         progress=False
@@ -117,7 +118,7 @@ stocks_df = stocks_df.rename_axis(None, axis=1)
 dat_list = []
 for i in sp500_tickers:
     if yf.Ticker(i).get_shares_full() is not None:
-        df = yf.Ticker(i).get_shares_full(start=start_date, end=end_date)
+        df = yf.Ticker(i).get_shares_full(start=START_DATE, end=end_date)
         df = pd.DataFrame(df)
         df['ticker'] = i
         dat_list.append(df)
@@ -130,7 +131,7 @@ os_df = os_df.rename(columns={0: 'outstanding_shares'})
 os_df = os_df.groupby(['os_report_datetime','os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Group to dates
-# is mean correct? or should we take last value? only matters if there are duplicate dates above
+# is mean correct? or should I take last value? only matters if there are duplicate dates above
 os_df_date_tick = os_df.groupby(['os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Set outstanding shares for each day
@@ -180,7 +181,7 @@ ffr = ffr.reset_index(names='Date')
 
 
 # Get historical weaher data for NYC from NOAA
-current_start_date = datetime.strptime(start_date, "%Y-%m-%d")
+current_start_date = datetime.strptime(START_DATE, "%Y-%m-%d")
 end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
 date_ranges = []
@@ -196,7 +197,7 @@ while current_start_date <= end_date:
 
 date_ranges_df = pd.DataFrame(date_ranges)
 
-noaa_base_url = 'https://www.ncei.noaa.gov/cdo-web/api/v2/data'
+NOAA_BASE_URL = 'https://www.ncei.noaa.gov/cdo-web/api/v2/data'
 
 headers = {
     'token': noaa_api_key
@@ -213,13 +214,13 @@ for index, row in date_ranges_df.iterrows():
         'limit': 1000  # Maximum number of records to fetch
     }
 
-    response = requests.get(noaa_base_url, headers=headers, params=params, timeout=20)
+    response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=20)
 
     if response.status_code != 200:
         print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
         print(f'Trying start date {row['start_date']} again')
         time.sleep(10)
-        response = requests.get(noaa_base_url, headers=headers, params=params, timeout=20)
+        response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=20)
         if response.status_code != 200:
             print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
             print("Failed twice. Not trying again")
