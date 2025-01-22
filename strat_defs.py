@@ -140,7 +140,8 @@ def strategy_prophet(data, initial_training_period, ticker, target):
         predicted_price = forecast['yhat'].iloc[0]
         current_price = data.loc[data.index[i - 1], target+"_"+ticker]
 
-        data.loc[data.index[i], 'Signal'] = 1 if predicted_price >= current_price else -1
+        data.loc[data.index[i-1], 'predicted_price'] = predicted_price
+        data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price >= current_price else -1
 
     return data, model
 

@@ -214,17 +214,22 @@ for index, row in date_ranges_df.iterrows():
         'limit': 1000  # Maximum number of records to fetch
     }
 
-    response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=20)
+    response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
 
     if response.status_code != 200:
         print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
         print(f'Trying start date {row['start_date']} again')
         time.sleep(10)
-        response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=20)
+        response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
         if response.status_code != 200:
-            print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
-            print("Failed twice. Not trying again")
-            break
+            print(f'Second error at start date {row['start_date']}: {response.status_code}, {response.text}')
+            print(f'Failed twice. Trying start date {row['start_date']} one last time')
+            time.sleep(20)
+            response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
+            if response.status_code != 200:
+                print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
+                print("Failed three times. Not trying again")
+                break
 
     print(response.status_code, row['start_date'])
     data = response.json()
