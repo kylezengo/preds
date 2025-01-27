@@ -263,6 +263,44 @@ weather_records = list(weather_data.values())
 weather_df = pd.DataFrame(weather_records)
 weather_df['date'] = pd.to_datetime(weather_df['date'])
 
+# Recent weather
+OBSERVATIONS_URL = "https://api.weather.gov/stations/KNYC/observations"
+
+observations_response = requests.get(OBSERVATIONS_URL, timeout=300)
+observations_response.raise_for_status()
+observations = observations_response.json()
+
+recent_weather_data = []
+for obs in observations["features"]:
+    props = obs["properties"]
+    recent_weather_data.append({
+        '@id': props["@id"],
+        'timestamp': props["timestamp"],
+        'temperature': props.get("temperature", {}).get("value"),
+        'minTemperatureLast24Hours': props.get("minTemperatureLast24Hours", {}).get("value"),
+        'maxTemperatureLast24Hours': props.get("maxTemperatureLast24Hours", {}).get("value"),
+        'windSpeed': props.get("windSpeed", {}).get("value"), # In km_h-1
+        'precipitationLastHour': props.get("precipitationLastHour", {}).get("value"),  # In mm
+        'precipitationLast3Hours': props.get("precipitationLast3Hours", {}).get("value"),  # In mm
+        'precipitationLast6Hours': props.get("precipitationLast6Hours", {}).get("value"),  # In mm
+    })
+
+recent_weather_df = pd.DataFrame(recent_weather_data)
+recent_weather_df['timestamp'] = pd.to_datetime(recent_weather_df['timestamp'])
+recent_weather_df['date'] = pd.to_datetime(recent_weather_df['timestamp'].dt.date)
+
+#
+simp_cols = ['date','timestamp','temperature']
+weather_simp = recent_weather_df[simp_cols]
+
+weather_simp = weather_simp.groupby('date').agg(low_temp_nyc=('temperature', 'min')
+                                                ,high_temp_nyc=('temperature', 'max')).reset_index()
+
+# Putting it all togeather
+just_new = weather_simp.loc[weather_simp['date']>max(weather_df['date'])]
+
+weather_df = pd.concat([weather_df,just_new]).reset_index(drop=True)
+
 
 # Save everything to csv files
 sp_df.to_csv(f'sp_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
