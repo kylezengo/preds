@@ -408,17 +408,19 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
     return data, model, score
 
-def strategy_keras(data, initial_training_period, keras_proba):
+def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length):
     """
     Calculate forecast with Keras
     """
+    scaler = StandardScaler()
+
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
     # Keras
-    sequence_length = 10  # Number of time steps (lookback window)
+    sequence_length = keras_sequence_length  # Number of time steps (lookback window)
 
     model = models.Sequential([
         layers.Input(shape=(sequence_length, len(selected_features))),
@@ -436,12 +438,19 @@ def strategy_keras(data, initial_training_period, keras_proba):
         X_train_0 = train_data[selected_features]
         y_train_0 = train_data['Target']
 
+        # Fit the scaler on the training data
+        scaler.fit(X_train_0)
+
+        # Scale training data and fit model
+        X_train_0_scaled = scaler.transform(X_train_0)
+
         # Select features and target
         X = []
         y = []
-        for j in range(len(X_train_0) - sequence_length):
+        for j in range(len(X_train_0_scaled) - sequence_length):
             # print("j: ",j)
-            X.append(X_train_0.iloc[j:j + sequence_length].values)
+            # X.append(X_train_0_scaled.iloc[j:j + sequence_length].values)
+            X.append(X_train_0_scaled[j:j + sequence_length, :])
             y.append(y_train_0.iloc[j + sequence_length])
 
         X = np.array(X)  # Shape: (samples, time_steps, num_features)
@@ -453,14 +462,16 @@ def strategy_keras(data, initial_training_period, keras_proba):
         X_test_1, y_test_1 = X[train_size:], y[train_size:]
 
         # Step 3: Train the Model
-        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16, validation_data=(X_test_1, y_test_1))
+        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16, validation_data=(X_test_1, y_test_1), verbose=0)
 
         # Step 4: Predict the Next Day
         # Use the last `sequence_length` rows of all features as input
-        last_sequence = X_train_0.iloc[-sequence_length:].values.reshape(1, sequence_length, len(selected_features))
+        # last_sequence = X_train_0_scaled.iloc[-sequence_length:].values.reshape(1, sequence_length, len(selected_features))
+        last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length, len(selected_features))
 
         # Make the prediction
-        next_day_prediction = model.predict(last_sequence)[0][0]
+        next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
+        print(f'Target vals {set(y_train_0)}; next_day_prediction: {next_day_prediction}')
 
         prediction_end = min(i + 1, len(data))
 
@@ -590,7 +601,8 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     elif strategy == "Keras":
         initial_training_period = kwargs.get('initial_training_period')
         keras_proba = kwargs.get('keras_proba')
-        data, model = strategy_keras(data, initial_training_period, keras_proba)
+        keras_sequence_length = kwargs.get('keras_sequence_length')
+        data, model = strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length)
 
     elif strategy == 'Model of Models':
         # WIP
