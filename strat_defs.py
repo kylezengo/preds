@@ -2,6 +2,7 @@
 
 import pandas as pd
 import numpy as np
+from keras import layers, models
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.decomposition import PCA
@@ -362,7 +363,7 @@ def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random
 
 def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
     """
-    Calculate forecast with MLP  
+    Calculate forecast with MLP
     """
     model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=random_state, max_iter=mlp_max_iter)
     scaler = StandardScaler()
@@ -407,6 +408,67 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
     return data, model, score
 
+def strategy_keras(data, initial_training_period, keras_proba):
+    """
+    Calculate forecast with Keras
+    """
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    # Keras
+    sequence_length = 10  # Number of time steps (lookback window)
+
+    model = models.Sequential([
+        layers.Input(shape=(sequence_length, len(selected_features))),
+        layers.LSTM(32, activation='relu'),
+        layers.Dense(16, activation='relu'),
+        layers.Dense(1, activation='sigmoid')  # Sigmoid activation for binary classification
+    ])
+
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+    for i in range(initial_training_period, len(data)):
+        # print("iiii: ",i)
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train_0 = train_data[selected_features]
+        y_train_0 = train_data['Target']
+
+        # Select features and target
+        X = []
+        y = []
+        for j in range(len(X_train_0) - sequence_length):
+            # print("j: ",j)
+            X.append(X_train_0.iloc[j:j + sequence_length].values)
+            y.append(y_train_0.iloc[j + sequence_length])
+
+        X = np.array(X)  # Shape: (samples, time_steps, num_features)
+        y = np.array(y)  # Shape: (samples,)
+
+        # Split into train and test sets
+        train_size = int(len(X) * 0.8)
+        X_train_1, y_train_1 = X[:train_size], y[:train_size]
+        X_test_1, y_test_1 = X[train_size:], y[train_size:]
+
+        # Step 3: Train the Model
+        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16, validation_data=(X_test_1, y_test_1))
+
+        # Step 4: Predict the Next Day
+        # Use the last `sequence_length` rows of all features as input
+        last_sequence = X_train_0.iloc[-sequence_length:].values.reshape(1, sequence_length, len(selected_features))
+
+        # Make the prediction
+        next_day_prediction = model.predict(last_sequence)[0][0]
+
+        prediction_end = min(i + 1, len(data))
+
+        data.loc[data.index[i:prediction_end], 'next_day_prediction'] = next_day_prediction
+
+    data['Signal'] = np.where(data['next_day_prediction'] > keras_proba, 1, -1)
+
+    return data, model
 
 #
 def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window,
@@ -524,6 +586,11 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
         data, model, score = strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
+
+    elif strategy == "Keras":
+        initial_training_period = kwargs.get('initial_training_period')
+        keras_proba = kwargs.get('keras_proba')
+        data, model = strategy_keras(data, initial_training_period, keras_proba)
 
     elif strategy == 'Model of Models':
         # WIP
