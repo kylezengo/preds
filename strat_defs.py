@@ -32,15 +32,24 @@ class BollingerConfig:
     num_std: float = 2.0
 
 @dataclass
+class RSIConfig:
+    """
+    RSI config class
+    """
+    window: int = 30
+    oversold: int = 30 # check notebook
+    overbought: int = 70 # check notebook
+
+@dataclass
 class IndicatorConfig:
     """
     Indicator config class
     """
     ticker: str
     target: str
-    rsi_window: int = 14
     moving_average: MovingAverageConfig = MovingAverageConfig()
     bollinger: BollingerConfig = BollingerConfig()
+    rsi: RSIConfig = RSIConfig()
 
 
  # Technical indicators
@@ -131,21 +140,25 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
         config (IndicatorConfig): Configuration object for technical indicators.
 
     Returns:
-        DataFrame: Data with strategy signals and portfolio value.
+        DataFrame: Original dataframe with technical indicators included 
     """
     target_ticker = config.target+"_"+config.ticker
-    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi_window)
-    data['MA_S'] = data[target_ticker].rolling(window=config.short_window).mean()
-    data['MA_L'] = data[target_ticker].rolling(window=config.long_window).mean()
-    data['MA_B'] = data[target_ticker].rolling(window=config.bollinger_window).mean()
-    data['Bollinger_Upper'] = data['MA_B'] + config.bollinger_num_std * data[target_ticker].rolling(window=config.bollinger_window).std()
-    data['Bollinger_Lower'] = data['MA_B'] - config.bollinger_num_std * data[target_ticker].rolling(window=config.bollinger_window).std()
+    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi.window)
+    data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
+    data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
+    data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
+    data['Bollinger_Upper'] = (data['MA_B'] +
+                               config.bollinger.num_std *
+                               data[target_ticker].rolling(window=config.bollinger.window).std())
+    data['Bollinger_Lower'] = (data['MA_B'] -
+                               config.bollinger.num_std *
+                               data[target_ticker].rolling(window=config.bollinger.window).std())
     data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
     return data
 
 
 # ML models
-def strategy_prophet(data, initial_training_period, ticker, target):
+def strat_prophet(data, initial_train_period, ticker, target):
     """
     Calculate forecast with Facebook Prophet  
     """
@@ -154,7 +167,7 @@ def strategy_prophet(data, initial_training_period, ticker, target):
     data_simp = data[['Date',target+"_"+ticker]]
     data_simp = data_simp.rename(columns={'Date': 'ds',target+"_"+ticker:'y'})
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         data_simp_cut = data_simp.iloc[:i]
 
         # Prophet object can only be fit once - must instantiate a new object every time
@@ -172,7 +185,7 @@ def strategy_prophet(data, initial_training_period, ticker, target):
 
     return data, model
 
-def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
+def strat_logit(data, initial_train_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
     """
     Calculate forecast with logistic regression  
     """
@@ -185,7 +198,7 @@ def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, l
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
@@ -216,7 +229,7 @@ def strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, l
 
     return data, model, score
 
-def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs=None):
+def strat_logit_pca(data, initial_train_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs=None):
     """
     Calculate forecast with logistic regression  
     """
@@ -230,7 +243,7 @@ def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_ite
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
@@ -265,7 +278,7 @@ def strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_ite
 
     return data, model#, score
 
-def strategy_random_forest(data, initial_training_period, random_state=None, njobs=None):
+def strat_random_forest(data, initial_train_period, random_state=None, njobs=None):
     """
     Calculate forecast with random forest  
     """
@@ -283,7 +296,7 @@ def strategy_random_forest(data, initial_training_period, random_state=None, njo
     # Prepare columns
     data['Signal'] = 1
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         X_train = X.iloc[:i]
         y_train = y.iloc[:i]
@@ -301,7 +314,7 @@ def strategy_random_forest(data, initial_training_period, random_state=None, njo
 
     return data, model, score
 
-def strategy_xgboost(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
     Calculate forecast with XGBoost  
     """
@@ -313,7 +326,7 @@ def strategy_xgboost(data, initial_training_period, xgboost_proba, random_state=
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
@@ -339,7 +352,7 @@ def strategy_xgboost(data, initial_training_period, xgboost_proba, random_state=
 
     return data, model, score
 
-def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random_state=None, n_jobs=None):
+def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
     Calculate forecast with XGBoost scaled
     """
@@ -352,7 +365,7 @@ def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
@@ -386,7 +399,7 @@ def strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random
 
     return data, model, score
 
-def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state=None):
+def strat_mlp(data, initial_train_period, mlp_proba, mlp_max_iter, random_state=None):
     """
     Calculate forecast with MLP
     """
@@ -399,7 +412,7 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
@@ -433,7 +446,7 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
     return data, model, score
 
-def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length, random_state=None):
+def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, random_state=None):
     """
     Calculate forecast with Keras
     """
@@ -452,12 +465,12 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
         layers.Input(shape=(sequence_length, len(selected_features))),
         layers.LSTM(32, activation='relu'),
         layers.Dense(16, activation='relu'),
-        layers.Dense(1, activation='sigmoid')  # Sigmoid activation for binary classification
+        layers.Dense(1, activation='sigmoid')  # Sigmoid for binary classification
     ])
 
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-    for i in range(initial_training_period, len(data)):
+    for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train_0 = train_data[selected_features]
@@ -485,11 +498,13 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
         X_test_1, y_test_1 = X[train_size:], y[train_size:]
 
         # Step 3: Train the Model
-        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16, validation_data=(X_test_1, y_test_1), verbose=0)
+        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16,
+                  validation_data=(X_test_1, y_test_1), verbose=0)
 
         # Step 4: Predict the Next Day
         # Use the last `sequence_length` rows of all features as input
-        last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length, len(selected_features))
+        last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length,
+                                                                       len(selected_features))
 
         # Make the prediction
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
@@ -513,13 +528,14 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
 # # config
 # moving_average_config = MovingAverageConfig(short_window=111, long_window=111)
 # bollinger_config = BollingerConfig(window=111, num_std=2.0)
+# rsi_config = RSIConfig(window=111, oversold=30, overbought=70)
 
 # indicator_config = IndicatorConfig(
 #     ticker='MY_TICKEE',
 #     target='MY_TARGET',
-#     rsi_window=111,
 #     moving_average=moving_average_config,
-#     bollinger=bollinger_config
+#     bollinger=bollinger_config,
+#     rsi=rsi_config
 # )
 ####################################
 
@@ -569,12 +585,9 @@ def backtest_strategy(data, initial_capital, strategy,
         data.loc[data['MA_S'] <= data['MA_L'], 'Signal'] = -1
 
     elif strategy == 'RSI':
-        rsi_oversold = kwargs.get('rsi_oversold')
-        rsi_overbought = kwargs.get('rsi_overbought')
-
         data['Signal'] = 0
-        data.loc[data['RSI'] < rsi_oversold, 'Signal'] = 1
-        data.loc[data['RSI'] > rsi_overbought, 'Signal'] = -1
+        data.loc[data['RSI'] < config.rsi.oversold, 'Signal'] = 1
+        data.loc[data['RSI'] > config.rsi.overbought, 'Signal'] = -1
 
     elif strategy == 'VWAP':
         data['Signal'] = 0
@@ -595,61 +608,61 @@ def backtest_strategy(data, initial_capital, strategy,
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy == "Prophet":
-        initial_training_period = kwargs.get('initial_training_period')
-        data, model = strategy_prophet(data, initial_training_period, config.ticker, config.target)
+        initial_train_period = kwargs.get('initial_train_period')
+        data, model = strat_prophet(data, initial_train_period, config.ticker, config.target)
 
     elif strategy == "Logit":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_c = kwargs.get('logit_c')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_logit(data, initial_training_period,
+        data, model, score = strat_logit(data, initial_train_period,
                                             logit_proba, logit_max_iter, logit_c, n_jobs)
 
     elif strategy == "Logit_PCA":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         logit_proba = kwargs.get('logit_proba')
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_c = kwargs.get('logit_c')
         logit_pca_n_components = kwargs.get('logit_pca_n_components')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_logit_pca(data, initial_training_period,
-                                         logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
+        data, model = strat_logit_pca(data, initial_train_period,
+                                      logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
 
     elif strategy == "RandomForest":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_random_forest(data, initial_training_period,
-                                                    random_state, n_jobs)
+        data, model, score = strat_random_forest(data, initial_train_period,
+                                                 random_state, n_jobs)
 
     elif strategy == "XGBoost":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_xgboost(data, initial_training_period,
-                                              xgboost_proba, random_state, n_jobs)
+        data, model, score = strat_xgboost(data, initial_train_period,
+                                           xgboost_proba, random_state, n_jobs)
 
     elif strategy == "XGBoost_scaled":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_xgboost_scaled(data, initial_training_period,
-                                                     xgboost_proba, random_state, n_jobs)
+        data, model, score = strat_xgboost_scaled(data, initial_train_period,
+                                                  xgboost_proba, random_state, n_jobs)
 
     elif strategy == "MLP":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
-        data, model, score = strategy_mlp(data, initial_training_period,
-                                          mlp_proba, mlp_max_iter, random_state)
+        data, model, score = strat_mlp(data, initial_train_period,
+                                       mlp_proba, mlp_max_iter, random_state)
 
     elif strategy == "Keras":
-        initial_training_period = kwargs.get('initial_training_period')
+        initial_train_period = kwargs.get('initial_train_period')
         keras_proba = kwargs.get('keras_proba')
         keras_sequence_length = kwargs.get('keras_sequence_length')
-        data, model = strategy_keras(data, initial_training_period,
-                                     keras_proba, keras_sequence_length, random_state)
+        data, model = strat_keras(data, initial_train_period,
+                                  keras_proba, keras_sequence_length, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
@@ -664,7 +677,7 @@ def backtest_strategy(data, initial_capital, strategy,
 
     # Stack on older data where had a training period, assume held stock during that time
     if min(data['Date']) != og_min_date:
-        data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
+        data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])]
         data_training_period['Signal']=1
         data = pd.concat([data_training_period,data])
 
