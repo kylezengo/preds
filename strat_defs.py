@@ -1,5 +1,7 @@
 """Define forecasting strategies"""
 
+from dataclasses import dataclass
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -11,6 +13,34 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from xgboost import XGBClassifier
+
+
+@dataclass
+class MovingAverageConfig:
+    """
+    Moving average config class
+    """
+    short_window: int = 20
+    long_window: int = 50
+
+@dataclass
+class BollingerConfig:
+    """
+    Bollinger config class
+    """
+    window: int = 20
+    num_std: float = 2.0
+
+@dataclass
+class IndicatorConfig:
+    """
+    Indicator config class
+    """
+    ticker: str
+    target: str
+    rsi_window: int = 14
+    moving_average: MovingAverageConfig = MovingAverageConfig()
+    bollinger: BollingerConfig = BollingerConfig()
 
 
  # Technical indicators
@@ -92,31 +122,25 @@ def calculate_vwap_long(data, target):
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_technical_indicators(data, ticker, target, short_window, long_window,
-                                   rsi_window, bollinger_window, bollinger_num_std):
+def calculate_technical_indicators(data, config: IndicatorConfig):
     """
     Calculate technical indicators for the dataset.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        ticker (str): Stock ticker
-        target (str): column to predict (usually Adj Close)
-        short_window (int):
-        long_window (int):
-        rsi_window (int):
-        bollinger_window (int):
-        bollinger_num_std (flot):
+        config (IndicatorConfig): Configuration object for technical indicators.
 
     Returns:
         DataFrame: Data with strategy signals and portfolio value.
     """
-    data['RSI'] = calculate_rsi_wide(data, ticker, target, window=rsi_window)
-    data['MA_S'] = data[target+"_"+ticker].rolling(window=short_window).mean()
-    data['MA_L'] = data[target+"_"+ticker].rolling(window=long_window).mean()
-    data['MA_B'] = data[target+"_"+ticker].rolling(window=bollinger_window).mean()
-    data['Bollinger_Upper'] = data['MA_B'] + bollinger_num_std * data[target+"_"+ticker].rolling(window=bollinger_window).std()
-    data['Bollinger_Lower'] = data['MA_B'] - bollinger_num_std * data[target+"_"+ticker].rolling(window=bollinger_window).std()
-    data['VWAP'] = calculate_vwap_wide(data, ticker, target)
+    target_ticker = config.target+"_"+config.ticker
+    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi_window)
+    data['MA_S'] = data[target_ticker].rolling(window=config.short_window).mean()
+    data['MA_L'] = data[target_ticker].rolling(window=config.long_window).mean()
+    data['MA_B'] = data[target_ticker].rolling(window=config.bollinger_window).mean()
+    data['Bollinger_Upper'] = data['MA_B'] + config.bollinger_num_std * data[target_ticker].rolling(window=config.bollinger_window).std()
+    data['Bollinger_Lower'] = data['MA_B'] - config.bollinger_num_std * data[target_ticker].rolling(window=config.bollinger_window).std()
+    data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
     return data
 
 
@@ -421,7 +445,7 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
     data = data.dropna().copy()
 
     # Keras
-    tf.random.set_seed(random_state) # seems like the seed is very influential... 
+    tf.random.set_seed(random_state) # seems like the seed is very influential...
     sequence_length = keras_sequence_length  # Number of time steps (lookback window)
 
     model = models.Sequential([
@@ -483,23 +507,34 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
 
     return data, model
 
+
+####################################
+#### This gets moved to notebook ###
+# # config
+# moving_average_config = MovingAverageConfig(short_window=111, long_window=111)
+# bollinger_config = BollingerConfig(window=111, num_std=2.0)
+
+# indicator_config = IndicatorConfig(
+#     ticker='MY_TICKEE',
+#     target='MY_TARGET',
+#     rsi_window=111,
+#     moving_average=moving_average_config,
+#     bollinger=bollinger_config
+# )
+####################################
+
+
 #
-def backtest_strategy(data, ticker, initial_capital, strategy, target, short_window, long_window,
-                      rsi_window, bollinger_window, bollinger_num_std, random_state=None, **kwargs):
+def backtest_strategy(data, initial_capital, strategy,
+                      config: IndicatorConfig, random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        ticker: Stock ticker
         initial_capital (float): initial investment / starting capital
         strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.)
-        target (str): column to predict (usually Adj Close)
-        short_window (int):
-        long_window (int):
-        rsi_window (int):
-        bollinger_window (int):
-        bollinger_num_std (flot):
+        config: congif info
         random_state (int): 
         **kwargs: Additional parameters for some strategies
 
@@ -516,9 +551,11 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     model = None
     score = None
 
-    data = calculate_technical_indicators(data, ticker, target, short_window, long_window,
-                                          rsi_window, bollinger_window, bollinger_num_std)
-    data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
+    target_ticker = config.target+"_"+config.ticker
+
+    data = calculate_technical_indicators(data, config)
+    data['Target'] = np.sign(data[target_ticker].shift(-1) -
+                             data[target_ticker])
     data.loc[data['Target']==0,'Target']=1
 
     # Strategies
@@ -541,25 +578,25 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
     elif strategy == 'VWAP':
         data['Signal'] = 0
-        data.loc[data[target+"_"+ticker] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
-        data.loc[data[target+"_"+ticker] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
+        data.loc[data[target_ticker] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
+        data.loc[data[target_ticker] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
 
     elif strategy == 'Bollinger':
         data['Signal'] = 1
-        data.loc[data[target+"_"+ticker] > data['Bollinger_Upper'], 'Signal'] = -1  # Sell
+        data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = -1  # Sell
 
     elif strategy == 'Breakout':
         breakout_window = kwargs.get('breakout_window')
 
-        data['High_Max'] = data['High_'+ticker].rolling(window=breakout_window).max().shift(1)
-        data['Low_Min'] = data['Low_'+ticker].rolling(window=breakout_window).min().shift(1)
+        data['High_Max'] = data['High_'+config.ticker].rolling(window=breakout_window).max().shift(1)
+        data['Low_Min'] = data['Low_'+config.ticker].rolling(window=breakout_window).min().shift(1)
         data['Signal'] = 0
-        data.loc[data[target+"_"+ticker] > data['High_Max'], 'Signal'] = 1  # Breakout above
-        data.loc[data[target+"_"+ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
+        data.loc[data[target_ticker] > data['High_Max'], 'Signal'] = 1  # Breakout above
+        data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
 
     elif strategy == "Prophet":
         initial_training_period = kwargs.get('initial_training_period')
-        data, model = strategy_prophet(data, initial_training_period, ticker, target)
+        data, model = strategy_prophet(data, initial_training_period, config.ticker, config.target)
 
     elif strategy == "Logit":
         initial_training_period = kwargs.get('initial_training_period')
@@ -567,7 +604,8 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_max_iter = kwargs.get('logit_max_iter')
         logit_c = kwargs.get('logit_c')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_logit(data, initial_training_period, logit_proba, logit_max_iter, logit_c, n_jobs)
+        data, model, score = strategy_logit(data, initial_training_period,
+                                            logit_proba, logit_max_iter, logit_c, n_jobs)
 
     elif strategy == "Logit_PCA":
         initial_training_period = kwargs.get('initial_training_period')
@@ -576,36 +614,42 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         logit_c = kwargs.get('logit_c')
         logit_pca_n_components = kwargs.get('logit_pca_n_components')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strategy_logit_pca(data, initial_training_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
+        data, model = strategy_logit_pca(data, initial_training_period,
+                                         logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
 
     elif strategy == "RandomForest":
         initial_training_period = kwargs.get('initial_training_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_random_forest(data, initial_training_period, random_state, n_jobs)
+        data, model, score = strategy_random_forest(data, initial_training_period,
+                                                    random_state, n_jobs)
 
     elif strategy == "XGBoost":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_xgboost(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_xgboost(data, initial_training_period,
+                                              xgboost_proba, random_state, n_jobs)
 
     elif strategy == "XGBoost_scaled":
         initial_training_period = kwargs.get('initial_training_period')
         xgboost_proba = kwargs.get('xgboost_proba')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strategy_xgboost_scaled(data, initial_training_period, xgboost_proba, random_state, n_jobs)
+        data, model, score = strategy_xgboost_scaled(data, initial_training_period,
+                                                     xgboost_proba, random_state, n_jobs)
 
     elif strategy == "MLP":
         initial_training_period = kwargs.get('initial_training_period')
         mlp_proba = kwargs.get('mlp_proba')
         mlp_max_iter = kwargs.get('mlp_max_iter')
-        data, model, score = strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_state)
+        data, model, score = strategy_mlp(data, initial_training_period,
+                                          mlp_proba, mlp_max_iter, random_state)
 
     elif strategy == "Keras":
         initial_training_period = kwargs.get('initial_training_period')
         keras_proba = kwargs.get('keras_proba')
         keras_sequence_length = kwargs.get('keras_sequence_length')
-        data, model = strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length, random_state)
+        data, model = strategy_keras(data, initial_training_period,
+                                     keras_proba, keras_sequence_length, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
@@ -639,7 +683,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
 
     data['signal_adj'] = signal_adj
 
-    data['Daily_Return'] = data[target+"_"+ticker].pct_change()
+    data['Daily_Return'] = data[target_ticker].pct_change()
     data['Strategy_Return'] = data['signal_adj'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
