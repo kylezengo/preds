@@ -2,6 +2,7 @@
 
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 from keras import layers, models
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
@@ -408,7 +409,7 @@ def strategy_mlp(data, initial_training_period, mlp_proba, mlp_max_iter, random_
 
     return data, model, score
 
-def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length):
+def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length, random_state=None):
     """
     Calculate forecast with Keras
     """
@@ -420,6 +421,7 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
     data = data.dropna().copy()
 
     # Keras
+    tf.random.set_seed(random_state) # seems like the seed is very influential... 
     sequence_length = keras_sequence_length  # Number of time steps (lookback window)
 
     model = models.Sequential([
@@ -432,7 +434,6 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
     for i in range(initial_training_period, len(data)):
-        # print("iiii: ",i)
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train_0 = train_data[selected_features]
@@ -448,8 +449,6 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
         X = []
         y = []
         for j in range(len(X_train_0_scaled) - sequence_length):
-            # print("j: ",j)
-            # X.append(X_train_0_scaled.iloc[j:j + sequence_length].values)
             X.append(X_train_0_scaled[j:j + sequence_length, :])
             y.append(y_train_0.iloc[j + sequence_length])
 
@@ -466,18 +465,21 @@ def strategy_keras(data, initial_training_period, keras_proba, keras_sequence_le
 
         # Step 4: Predict the Next Day
         # Use the last `sequence_length` rows of all features as input
-        # last_sequence = X_train_0_scaled.iloc[-sequence_length:].values.reshape(1, sequence_length, len(selected_features))
         last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length, len(selected_features))
 
         # Make the prediction
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
-        print(f'Target vals {set(y_train_0)}; next_day_prediction: {next_day_prediction}')
+        sig_check = 0 if next_day_prediction < keras_proba else 1
+        print(f"sig: {sig_check}; "
+              f"len(X_train_0_scaled): {len(X_train_0_scaled)}; "
+              f"max(train_data['Date']): {max(train_data['Date']).strftime('%Y-%m-%d')}; "
+              f"next_day_pred: {next_day_prediction}")
 
         prediction_end = min(i + 1, len(data))
 
         data.loc[data.index[i:prediction_end], 'next_day_prediction'] = next_day_prediction
 
-    data['Signal'] = np.where(data['next_day_prediction'] > keras_proba, 1, -1)
+    data['Signal'] = np.where(data['next_day_prediction'] < keras_proba, -1, 1)
 
     return data, model
 
@@ -517,6 +519,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
     data = calculate_technical_indicators(data, ticker, target, short_window, long_window,
                                           rsi_window, bollinger_window, bollinger_num_std)
     data['Target'] = np.sign(data[target+"_"+ticker].shift(-1) - data[target+"_"+ticker])
+    data.loc[data['Target']==0,'Target']=1
 
     # Strategies
     if strategy == "Hold":
@@ -602,7 +605,7 @@ def backtest_strategy(data, ticker, initial_capital, strategy, target, short_win
         initial_training_period = kwargs.get('initial_training_period')
         keras_proba = kwargs.get('keras_proba')
         keras_sequence_length = kwargs.get('keras_sequence_length')
-        data, model = strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length)
+        data, model = strategy_keras(data, initial_training_period, keras_proba, keras_sequence_length, random_state)
 
     elif strategy == 'Model of Models':
         # WIP
