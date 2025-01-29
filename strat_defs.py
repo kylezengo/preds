@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from keras import layers, models
+from keras import layers, models, regularizers
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.decomposition import PCA
@@ -463,8 +463,8 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
 
     model = models.Sequential([
         layers.Input(shape=(sequence_length, len(selected_features))),
-        layers.LSTM(32, activation='relu'),
-        layers.Dense(16, activation='relu'),
+        layers.LSTM(32, activation='relu', dropout=0.2, recurrent_dropout=0.2),
+        layers.Dense(16, activation='relu',kernel_regularizer=regularizers.l2(0.01)),
         layers.Dense(1, activation='sigmoid')  # Sigmoid for binary classification
     ])
 
