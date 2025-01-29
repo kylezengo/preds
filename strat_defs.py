@@ -1,6 +1,6 @@
 """Define forecasting strategies"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 import numpy as np
@@ -47,9 +47,9 @@ class IndicatorConfig:
     """
     ticker: str
     target: str
-    moving_average: MovingAverageConfig = MovingAverageConfig()
-    bollinger: BollingerConfig = BollingerConfig()
-    rsi: RSIConfig = RSIConfig()
+    moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
+    bollinger: BollingerConfig = field(default_factory=BollingerConfig)
+    rsi: RSIConfig = field(default_factory=RSIConfig)
 
 
  # Technical indicators
@@ -463,7 +463,8 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
 
     model = models.Sequential([
         layers.Input(shape=(sequence_length, len(selected_features))),
-        layers.LSTM(32, activation='relu', dropout=0.2, recurrent_dropout=0.2),
+        layers.LSTM(64, return_sequences=True, activation='relu', dropout=0.2, recurrent_dropout=0.2),
+        layers.LSTM(32, activation='relu'),
         layers.Dense(16, activation='relu',kernel_regularizer=regularizers.l2(0.01)),
         layers.Dense(1, activation='sigmoid')  # Sigmoid for binary classification
     ])
@@ -487,7 +488,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
         y = []
         for j in range(len(X_train_0_scaled) - sequence_length):
             X.append(X_train_0_scaled[j:j + sequence_length, :])
-            y.append(y_train_0.iloc[j + sequence_length])
+            y.append(y_train_0.iloc[j + sequence_length - 1])
 
         X = np.array(X)  # Shape: (samples, time_steps, num_features)
         y = np.array(y)  # Shape: (samples,)
@@ -497,16 +498,16 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
         X_train_1, y_train_1 = X[:train_size], y[:train_size]
         X_test_1, y_test_1 = X[train_size:], y[train_size:]
 
-        # Step 3: Train the Model
-        model.fit(X_train_1, y_train_1, epochs=20, batch_size=16,
+        # Train the Model
+        model.fit(X_train_1, y_train_1, epochs=50, batch_size=16,
                   validation_data=(X_test_1, y_test_1), verbose=0)
 
-        # Step 4: Predict the Next Day
-        # Use the last `sequence_length` rows of all features as input
+        # Predict the next day - use the last sequence_length rows of all features as input
         last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length,
                                                                        len(selected_features))
 
         # Make the prediction
+        # next_day_prediction = 1 - model.predict(last_sequence, verbose=0)[0][0] # tried 1-pred. should give more 1s, but not sure if correct...
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
         sig_check = 0 if next_day_prediction < keras_proba else 1
         print(f"sig: {sig_check}; "
@@ -514,30 +515,11 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
               f"max(train_data['Date']): {max(train_data['Date']).strftime('%Y-%m-%d')}; "
               f"next_day_pred: {next_day_prediction}")
 
-        prediction_end = min(i + 1, len(data))
-
-        data.loc[data.index[i:prediction_end], 'next_day_prediction'] = next_day_prediction
+        data.loc[data.index[i], 'next_day_prediction'] = next_day_prediction
 
     data['Signal'] = np.where(data['next_day_prediction'] < keras_proba, -1, 1)
 
     return data, model
-
-
-####################################
-#### This gets moved to notebook ###
-# # config
-# moving_average_config = MovingAverageConfig(short_window=111, long_window=111)
-# bollinger_config = BollingerConfig(window=111, num_std=2.0)
-# rsi_config = RSIConfig(window=111, oversold=30, overbought=70)
-
-# indicator_config = IndicatorConfig(
-#     ticker='MY_TICKEE',
-#     target='MY_TARGET',
-#     moving_average=moving_average_config,
-#     bollinger=bollinger_config,
-#     rsi=rsi_config
-# )
-####################################
 
 
 #
@@ -677,9 +659,9 @@ def backtest_strategy(data, initial_capital, strategy,
 
     # Stack on older data where had a training period, assume held stock during that time
     if min(data['Date']) != og_min_date:
-        data_training_period = data_raw.loc[data_raw['Date']<min(data['Date'])]
-        data_training_period['Signal']=1
-        data = pd.concat([data_training_period,data])
+        data_train_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
+        data_train_period['Signal']=1
+        data = pd.concat([data_train_period,data])
 
     # Backtest logic: Calculate portfolio value
     signal_adj = []
