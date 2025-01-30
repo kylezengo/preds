@@ -507,7 +507,6 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
                                                                        len(selected_features))
 
         # Make the prediction
-        # next_day_prediction = 1 - model.predict(last_sequence, verbose=0)[0][0] # tried 1-pred. should give more 1s, but not sure if correct...
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
         sig_check = 0 if next_day_prediction < keras_proba else 1
         print(f"sig: {sig_check}; "
