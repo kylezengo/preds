@@ -154,6 +154,12 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
                                config.bollinger.num_std *
                                data[target_ticker].rolling(window=config.bollinger.window).std())
     data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
+
+    # my own stuff
+    # number of days negative in a row
+    # number of days positive in a row
+
+
     return data
 
 
@@ -181,7 +187,7 @@ def strat_prophet(data, initial_train_period, ticker, target):
         current_price = data.loc[data.index[i - 1], target+"_"+ticker]
 
         data.loc[data.index[i-1], 'predicted_price_tomorrow'] = predicted_price_tomorrow
-        data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price_tomorrow >= current_price else -1
+        data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price_tomorrow >= current_price else 0
 
     return data, model
 
@@ -223,7 +229,7 @@ def strat_logit(data, initial_train_period, logit_proba, logit_max_iter, logit_c
             probability_column = f"proba_logit_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_-1.0'] > logit_proba, -1, 1)
+    data['Signal'] = np.where(data['proba_logit_0'] > logit_proba, 0, 1)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -272,7 +278,7 @@ def strat_logit_pca(data, initial_train_period, logit_proba, logit_max_iter, log
             probability_column = f"proba_logit_pca_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_pca_-1.0'] > logit_proba, -1, 1)
+    data['Signal'] = np.where(data['proba_logit_pca_0'] > logit_proba, 0, 1)
 
     # score = model.score(X_test_pca, y_train)
 
@@ -346,7 +352,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
             probability_column = f"proba_xgboost_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_-1.0'] > xgboost_proba, -1, 1)
+    data['Signal'] = np.where(data['proba_xgboost_0'] > xgboost_proba, 0, 1)
 
     score = model.score(X_train, y_train)
 
@@ -393,7 +399,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
             probability_column = f"proba_xgboost_scaled_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_scaled_-1.0'] > xgboost_proba, -1, 1)
+    data['Signal'] = np.where(data['proba_xgboost_scaled_0'] > xgboost_proba, 0, 1)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -440,7 +446,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, mlp_max_iter, random_state=
             probability_column = f"proba_mlp_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_mlp_-1.0'] > mlp_proba, -1, 1)
+    data['Signal'] = np.where(data['proba_mlp_0'] > mlp_proba, 0, 1)
 
     score = model.score(X_train, y_train)
 
@@ -510,13 +516,13 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
         sig_check = 0 if next_day_prediction < keras_proba else 1
         print(f"sig: {sig_check}; "
-              f"len(X_train_0_scaled): {len(X_train_0_scaled)}; "
-              f"max(train_data['Date']): {max(train_data['Date']).strftime('%Y-%m-%d')}; "
-              f"next_day_pred: {next_day_prediction}")
+              f"Date: {max(train_data['Date']).strftime('%Y-%m-%d')}; "
+              f"next_day_pred: {next_day_prediction} "
+              f"Percent 1: {sum(y_train_0[-sequence_length:])/sequence_length}")
 
         data.loc[data.index[i], 'next_day_prediction'] = next_day_prediction
 
-    data['Signal'] = np.where(data['next_day_prediction'] < keras_proba, -1, 1)
+    data['Signal'] = np.where(data['next_day_prediction'] < keras_proba, 0, 1)
 
     return data, model
 
@@ -551,42 +557,35 @@ def backtest_strategy(data, initial_capital, strategy,
     target_ticker = config.target+"_"+config.ticker
 
     data = calculate_technical_indicators(data, config)
-    data['Target'] = np.sign(data[target_ticker].shift(-1) -
-                             data[target_ticker])
-    data.loc[data['Target']==0,'Target']=1
+    data['Target'] = np.where((data[target_ticker].shift(-1)-data[target_ticker]) < 0, 0, 1)
 
     # Strategies
     if strategy == "Hold":
         data['Signal'] = 1
 
     elif strategy == "SMA":
-        # Generate signals: 1 = Buy, -1 = Sell, 0 = Hold
-        data['Signal'] = 0
-        data.loc[data['MA_S'] > data['MA_L'], 'Signal'] = 1
-        data.loc[data['MA_S'] <= data['MA_L'], 'Signal'] = -1
+        data['Signal'] = 1
+        data.loc[data['MA_S'] <= data['MA_L'], 'Signal'] = 0
 
     elif strategy == 'RSI':
-        data['Signal'] = 0
-        data.loc[data['RSI'] < config.rsi.oversold, 'Signal'] = 1
-        data.loc[data['RSI'] > config.rsi.overbought, 'Signal'] = -1
+        data['Signal'] = 1
+        data.loc[data['RSI'] > config.rsi.overbought, 'Signal'] = 0
 
     elif strategy == 'VWAP':
-        data['Signal'] = 0
-        data.loc[data[target_ticker] < data['VWAP'], 'Signal'] = 1  # Buy below VWAP
-        data.loc[data[target_ticker] > data['VWAP'], 'Signal'] = -1  # Sell above VWAP
+        data['Signal'] = 1
+        data.loc[data[target_ticker] > data['VWAP'], 'Signal'] = 0  # Sell above VWAP
 
     elif strategy == 'Bollinger':
         data['Signal'] = 1
-        data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = -1  # Sell
+        data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = 0  # Sell
 
     elif strategy == 'Breakout':
         breakout_window = kwargs.get('breakout_window')
 
         data['High_Max'] = data['High_'+config.ticker].rolling(window=breakout_window).max().shift(1)
         data['Low_Min'] = data['Low_'+config.ticker].rolling(window=breakout_window).min().shift(1)
-        data['Signal'] = 0
-        data.loc[data[target_ticker] > data['High_Max'], 'Signal'] = 1  # Breakout above
-        data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = -1  # Breakout below
+        data['Signal'] = 1
+        data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0  # Breakout below
 
     elif strategy == "Prophet":
         initial_train_period = kwargs.get('initial_train_period')
@@ -662,23 +661,8 @@ def backtest_strategy(data, initial_capital, strategy,
         data_train_period['Signal']=1
         data = pd.concat([data_train_period,data])
 
-    # Backtest logic: Calculate portfolio value
-    signal_adj = []
-    prev = 1
-    for i in data['Signal']:
-        if i==1:
-            signal_adj.append(1)
-            prev=1
-        elif i==-1:
-            signal_adj.append(0)
-            prev=0
-        else:
-            signal_adj.append(prev)
-
-    data['signal_adj'] = signal_adj
-
     data['Daily_Return'] = data[target_ticker].pct_change()
-    data['Strategy_Return'] = data['signal_adj'].shift(1) * data['Daily_Return']
+    data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
     return data, model, score
