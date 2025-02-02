@@ -155,11 +155,6 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
                                data[target_ticker].rolling(window=config.bollinger.window).std())
     data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
 
-    # my own stuff
-    # number of days negative in a row
-    # number of days positive in a row
-
-
     return data
 
 
@@ -229,7 +224,7 @@ def strat_logit(data, initial_train_period, logit_proba, logit_max_iter, logit_c
             probability_column = f"proba_logit_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_1'] > logit_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_logit_1'].fillna(1) > logit_proba, 1, 0)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -278,7 +273,7 @@ def strat_logit_pca(data, initial_train_period, logit_proba, logit_max_iter, log
             probability_column = f"proba_logit_pca_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_pca_1'] > logit_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_logit_pca_1'].fillna(1) > logit_proba, 1, 0)
 
     # score = model.score(X_test_pca, y_train)
 
@@ -352,7 +347,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
             probability_column = f"proba_xgboost_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_1'] > xgboost_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_xgboost_1'].fillna(1) > xgboost_proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
@@ -399,7 +394,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
             probability_column = f"proba_xgboost_scaled_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_scaled_1'] > xgboost_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_xgboost_scaled_1'].fillna(1) > xgboost_proba, 1, 0)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -449,7 +444,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, mlp_max_iter, random_state=
             probability_column = f"proba_mlp_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_mlp_1'] > mlp_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_mlp_1'].fillna(1) > mlp_proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
@@ -521,11 +516,11 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
         print(f"sig: {sig_check}; "
               f"Date: {max(train_data['Date']).strftime('%Y-%m-%d')}; "
               f"next_day_pred: {next_day_prediction} "
-              f"Percent 1: {sum(y_train_0[-sequence_length:])/sequence_length}")
+              f"Percent 1: {sum(y_train_0[-sequence_length:])/sequence_length:.0%}")
 
         data.loc[data.index[i], 'next_day_prediction'] = next_day_prediction
 
-    data['Signal'] = np.where(data['next_day_prediction'] > keras_proba, 1, 0)
+    data['Signal'] = np.where(data['next_day_prediction'].fillna(1) > keras_proba, 1, 0)
 
     return data, model
 
@@ -561,6 +556,27 @@ def backtest_strategy(data, initial_capital, strategy,
 
     data = calculate_technical_indicators(data, config)
     data['Target'] = np.where((data[target_ticker].shift(-1)-data[target_ticker]) < 0, 0, 1)
+
+    data['yesterday_to_today'] = np.where((data[target_ticker]-data[target_ticker].shift(1)) < 0, 0, 1)
+
+    # streaks
+    data['streak'] = data.groupby((data['yesterday_to_today'] != data['yesterday_to_today'].shift(1)).cumsum()).cumcount()+1
+
+    data['streak0'] = np.where(data['yesterday_to_today']==1,0,data['streak'])
+    data['streak1'] = np.where(data['yesterday_to_today']==0,0,data['streak'])
+    data = data.drop(columns='yesterday_to_today')
+
+    # data['next_is_0'] = (data['yesterday_to_today'].shift(-1) == 0).astype(int) # leak
+    # data['next_is_1'] = (data['yesterday_to_today'].shift(-1) == 1).astype(int)
+
+    # # prob of a 0 or 1 following a streak length
+    # prob_df_0 = data.groupby('streak0')['next_is_0'].mean().to_frame().rename(columns={'next_is_0': 'prob_next_is_0'}) # leak?
+    # prob_df_1 = data.groupby('streak1')['next_is_1'].mean().to_frame().rename(columns={'next_is_1': 'prob_next_is_1'})
+
+    # # Merge probabilities back into original DataFrame
+    # data = data.merge(prob_df_0, how='left', left_on='streak0', right_index=True)
+    # data = data.merge(prob_df_1, how='left', left_on='streak1', right_index=True)
+
 
     # Strategies
     if strategy == "Hold":

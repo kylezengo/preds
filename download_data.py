@@ -48,6 +48,18 @@ sp_df.loc[sp_df['wiki_page']=='J.M.+Smucker+Company+%28The%29','wiki_page'] = "T
 sp_df.loc[sp_df['wiki_page']=='Travelers+Companies+%28The%29','wiki_page'] = "The_Travelers_Companies"
 sp_df.loc[sp_df['wiki_page']=='Walt+Disney+Company+%28The%29','wiki_page'] = "The_Walt_Disney_Company"
 
+sp_df_spy = pd.DataFrame([{'Symbol': "SPY",
+                           'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
+                           'GICS Sector': None,
+                           'GICS Sub-Industry': None,
+                           'Headquarters Location': None,
+                           'Date added': "1993-01-22",
+                           'CIK': None,
+                           'Founded': "1993-01-22",
+                           'wiki_page': "S%26P_500"}])
+
+sp_df = pd.concat([sp_df,sp_df_spy],ignore_index=True)
+
 # Get daily wikipedia pageviews for each company
 WIKI_SDATE="20150701" # earliest date is"20150701"
 wiki_edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
@@ -94,7 +106,7 @@ wiki_pageviews['Date'] =  pd.to_datetime(wiki_pageviews['timestamp'], format='%Y
 # Get daily stocks data
 sp500_tickers = sp_df['Symbol']
 
-selected_tickers = list(sp500_tickers)+["SPY"]
+selected_tickers = list(sp500_tickers)
 
 dat_list = []
 for i in selected_tickers:
