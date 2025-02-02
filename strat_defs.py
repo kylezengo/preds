@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 from keras import layers, models, regularizers
 from prophet import Prophet
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
@@ -18,7 +18,7 @@ from xgboost import XGBClassifier
 @dataclass
 class MovingAverageConfig:
     """
-    Moving average config class
+    Moving average configuration class
     """
     short_window: int = 20
     long_window: int = 50
@@ -26,30 +26,46 @@ class MovingAverageConfig:
 @dataclass
 class BollingerConfig:
     """
-    Bollinger config class
+    Bollinger configuration class
     """
     window: int = 20
     num_std: float = 2.0
 
 @dataclass
-class RSIConfig:
-    """
-    RSI config class
-    """
-    window: int = 30
-    oversold: int = 30 # check notebook
-    overbought: int = 70 # check notebook
-
-@dataclass
 class IndicatorConfig:
     """
-    Indicator config class
+    Configuration class for technical indicators used in forecasting strategies.
     """
     ticker: str
     target: str
+    rsi_window: int = 30
     moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
     bollinger: BollingerConfig = field(default_factory=BollingerConfig)
-    rsi: RSIConfig = field(default_factory=RSIConfig)
+
+@dataclass
+class LogitConfig:
+    """
+    Logit configuration class
+    """
+    max_iter: int = 1000
+    proba: float = 0.5
+    c: float = 0.01
+    pca_n_components: float = 0.95
+
+@dataclass
+class BacktestConfig:
+    """
+    Backtest configuration class
+    """
+    overbought: int = 70
+    xgboost_proba: float = 0.4
+    mlp_proba: float = 0.5
+    mlp_max_iter: int = 1000
+    keras_proba: float = 0.5
+    keras_sequence_length: int = 30
+    logit: LogitConfig = field(default_factory=LogitConfig)
+    indicator: IndicatorConfig = field(default_factory=IndicatorConfig)
+
 
 
  # Technical indicators
@@ -143,7 +159,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
         DataFrame: Original dataframe with technical indicators included 
     """
     target_ticker = config.target+"_"+config.ticker
-    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi.window)
+    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi_window)
     data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
     data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
     data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
@@ -186,11 +202,16 @@ def strat_prophet(data, initial_train_period, ticker, target):
 
     return data, model
 
-def strat_logit(data, initial_train_period, logit_proba, logit_max_iter, logit_c, n_jobs=None):
+def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
-    Calculate forecast with logistic regression  
+    Calculate forecast with logistic regression
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained logistic regression model.
+        score: Model accuracy score.
     """
-    model = LogisticRegression(C=logit_c, max_iter=logit_max_iter, n_jobs=n_jobs)
+    model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
 
@@ -224,20 +245,20 @@ def strat_logit(data, initial_train_period, logit_proba, logit_max_iter, logit_c
             probability_column = f"proba_logit_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_1'].fillna(1) > logit_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_logit_1'].fillna(1) > config.proba, 1, 0)
 
     score = model.score(X_train_scaled, y_train)
 
     return data, model, score
 
-def strat_logit_pca(data, initial_train_period, logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs=None):
+def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
     Calculate forecast with logistic regression  
     """
-    model = LogisticRegression(C=logit_c, max_iter=logit_max_iter, n_jobs=n_jobs)
+    model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     le = LabelEncoder()
-    pca = PCA(n_components=logit_pca_n_components)
+    pca = PCA(n_components=config.pca_n_components)
 
     selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
 
@@ -273,7 +294,7 @@ def strat_logit_pca(data, initial_train_period, logit_proba, logit_max_iter, log
             probability_column = f"proba_logit_pca_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_pca_1'].fillna(1) > logit_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_logit_pca_1'].fillna(1) > config.proba, 1, 0)
 
     # score = model.score(X_test_pca, y_train)
 
@@ -294,9 +315,42 @@ def strat_random_forest(data, initial_train_period, random_state=None, njobs=Non
     X = data[selected_features]
     y = data['Target']
 
-    # Prepare columns
     data['Signal'] = 1
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        X_train = X.iloc[:i]
+        y_train = y.iloc[:i]
 
+        # Train the model
+        model.fit(X_train, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+
+        X_test = X.iloc[i:prediction_end]
+        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
+
+    score = model.score(X_train, y_train)
+
+    return data, model, score
+
+def strat_gradient_boost(data, initial_train_period, random_state=None):
+    """
+    Calculate forecast with sklearn's GradientBoostingClassifier 
+    Probably better to use XGBoost instead (much faster)
+    """
+    model = GradientBoostingClassifier(random_state=random_state)
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    # Define features and target
+    X = data[selected_features]
+    y = data['Target']
+
+    data['Signal'] = 1
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         X_train = X.iloc[:i]
@@ -317,7 +371,12 @@ def strat_random_forest(data, initial_train_period, random_state=None, njobs=Non
 
 def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
-    Calculate forecast with XGBoost  
+    Calculate forecast with XGBoost
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained XGBoost model.
+        score: Model accuracy score.
     """
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
@@ -527,7 +586,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
 
 #
 def backtest_strategy(data, initial_capital, strategy,
-                      config: IndicatorConfig, random_state=None, **kwargs):
+                      config: BacktestConfig, random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
@@ -535,7 +594,7 @@ def backtest_strategy(data, initial_capital, strategy,
         data (DataFrame): Stock data with required columns.
         initial_capital (float): initial investment / starting capital
         strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.)
-        config: congif info
+        config: config info
         random_state (int): 
         **kwargs: Additional parameters for some strategies
 
@@ -552,31 +611,40 @@ def backtest_strategy(data, initial_capital, strategy,
     model = None
     score = None
 
-    target_ticker = config.target+"_"+config.ticker
+    target_ticker = config.indicator.target+"_"+config.indicator.ticker
 
-    data = calculate_technical_indicators(data, config)
+    data = calculate_technical_indicators(data, config.indicator)
     data['Target'] = np.where((data[target_ticker].shift(-1)-data[target_ticker]) < 0, 0, 1)
 
-    data['yesterday_to_today'] = np.where((data[target_ticker]-data[target_ticker].shift(1)) < 0, 0, 1)
+    data['yesterday_to_today'] = np.where(
+        (data[target_ticker]-data[target_ticker].shift(1)) < 0, 0, 1
+    )
 
-    # streaks
-    data['streak'] = data.groupby((data['yesterday_to_today'] != data['yesterday_to_today'].shift(1)).cumsum()).cumcount()+1
+    # Calculate the length of consecutive streaks of up or down days
+    data['streak'] = data.groupby(
+        (data['yesterday_to_today'] != data['yesterday_to_today'].shift(1)).cumsum()
+    ).cumcount()+1
 
     data['streak0'] = np.where(data['yesterday_to_today']==1,0,data['streak'])
     data['streak1'] = np.where(data['yesterday_to_today']==0,0,data['streak'])
-    data = data.drop(columns='yesterday_to_today')
 
+
+    # Needs to be inside the strategies ##############################
     # data['next_is_0'] = (data['yesterday_to_today'].shift(-1) == 0).astype(int) # leak
     # data['next_is_1'] = (data['yesterday_to_today'].shift(-1) == 1).astype(int)
 
     # # prob of a 0 or 1 following a streak length
-    # prob_df_0 = data.groupby('streak0')['next_is_0'].mean().to_frame().rename(columns={'next_is_0': 'prob_next_is_0'}) # leak?
-    # prob_df_1 = data.groupby('streak1')['next_is_1'].mean().to_frame().rename(columns={'next_is_1': 'prob_next_is_1'})
+    # prob_df_0 = data.groupby('streak0')['next_is_0'].mean().to_frame() # leak?
+    # prob_df_0 = prob_df_0.rename(columns={'next_is_0': 'prob_next_is_0'})
+    # prob_df_1 = data.groupby('streak1')['next_is_1'].mean().to_frame()
+    # prob_df_1 = prob_df_1.rename(columns={'next_is_1': 'prob_next_is_1'})
 
     # # Merge probabilities back into original DataFrame
     # data = data.merge(prob_df_0, how='left', left_on='streak0', right_index=True)
     # data = data.merge(prob_df_1, how='left', left_on='streak1', right_index=True)
+    ##################################################################
 
+    data = data.drop(columns=['MA_B','yesterday_to_today','streak'])
 
     # Strategies
     if strategy == "Hold":
@@ -588,7 +656,7 @@ def backtest_strategy(data, initial_capital, strategy,
 
     elif strategy == 'RSI':
         data['Signal'] = 1
-        data.loc[data['RSI'] > config.rsi.overbought, 'Signal'] = 0
+        data.loc[data['RSI'] > config.overbought, 'Signal'] = 0
 
     elif strategy == 'VWAP':
         data['Signal'] = 1
@@ -599,41 +667,39 @@ def backtest_strategy(data, initial_capital, strategy,
         data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = 0
 
     elif strategy == 'Breakout':
-        breakout_window = kwargs.get('breakout_window')
+        bko_window = kwargs.get('bko_window')
 
-        data['High_Max'] = data['High_'+config.ticker].rolling(window=breakout_window).max().shift(1)
-        data['Low_Min'] = data['Low_'+config.ticker].rolling(window=breakout_window).min().shift(1)
+        data['High_Max'] = data['High_'+config.indicator.ticker].rolling(window=bko_window).max().shift(1)
+        data['Low_Min'] = data['Low_'+config.indicator.ticker].rolling(window=bko_window).min().shift(1)
         data['Signal'] = 1
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
 
     elif strategy == "Prophet":
         initial_train_period = kwargs.get('initial_train_period')
-        data, model = strat_prophet(data, initial_train_period, config.ticker, config.target)
+        data, model = strat_prophet(data, initial_train_period, config.indicator.ticker,
+                                    config.indicator.target)
 
     elif strategy == "Logit":
         initial_train_period = kwargs.get('initial_train_period')
-        logit_proba = kwargs.get('logit_proba')
-        logit_max_iter = kwargs.get('logit_max_iter')
-        logit_c = kwargs.get('logit_c')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_logit(data, initial_train_period,
-                                            logit_proba, logit_max_iter, logit_c, n_jobs)
+        data, model, score = strat_logit(data, initial_train_period, config=config.logit,
+                                         n_jobs=n_jobs)
 
     elif strategy == "Logit_PCA":
         initial_train_period = kwargs.get('initial_train_period')
-        logit_proba = kwargs.get('logit_proba')
-        logit_max_iter = kwargs.get('logit_max_iter')
-        logit_c = kwargs.get('logit_c')
-        logit_pca_n_components = kwargs.get('logit_pca_n_components')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strat_logit_pca(data, initial_train_period,
-                                      logit_proba, logit_max_iter, logit_c, logit_pca_n_components, n_jobs)
+        data, model = strat_logit_pca(data, initial_train_period, config=config.logit,
+                                      n_jobs=n_jobs)
 
     elif strategy == "RandomForest":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strat_random_forest(data, initial_train_period,
                                                  random_state, n_jobs)
+
+    elif strategy == "GradientBoosting":
+        initial_train_period = kwargs.get('initial_train_period')
+        data, model, score = strat_gradient_boost(data, initial_train_period,random_state)
 
     elif strategy == "XGBoost":
         initial_train_period = kwargs.get('initial_train_period')
