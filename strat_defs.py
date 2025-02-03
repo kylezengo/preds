@@ -242,10 +242,10 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_logit_{class_name}"
+            probability_column = f"proba_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_1'].fillna(1) > config.proba, 1, 0)
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -291,10 +291,10 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_pca)
         for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_logit_pca_{class_name}"
+            probability_column = f"proba_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_logit_pca_1'].fillna(1) > config.proba, 1, 0)
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
     # score = model.score(X_test_pca, y_train)
 
@@ -373,6 +373,13 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
     """
     Calculate forecast with XGBoost
     
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        xgboost_proba (float): Probability threshold for Signal = 1.
+        random_state (int, optional): Random state for reproducibility.
+        n_jobs (int, optional): Number of parallel jobs for XGBoost.
+    
     Returns:
         DataFrame: Data with strategy signals.
         model: Trained XGBoost model.
@@ -403,10 +410,10 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test)
         for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_xgboost_{class_name}"
+            probability_column = f"proba_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_1'].fillna(1) > xgboost_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
