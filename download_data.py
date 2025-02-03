@@ -140,11 +140,15 @@ os_df = pd.concat(dat_list)
 os_df = os_df.rename_axis('os_report_datetime').reset_index()
 os_df['os_report_date'] = pd.to_datetime(os_df['os_report_datetime'].dt.date)
 os_df = os_df.rename(columns={0: 'outstanding_shares'})
-os_df = os_df.groupby(['os_report_datetime','os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
+os_df = os_df.groupby(
+    ['os_report_datetime','os_report_date','ticker']
+).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Group to dates
 # is mean correct? or should I take last value? only matters if there are duplicate dates above
-os_df_date_tick = os_df.groupby(['os_report_date','ticker']).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
+os_df_date_tick = os_df.groupby(
+    ['os_report_date','ticker']
+).agg(outstanding_shares = ('outstanding_shares','mean')).reset_index()
 
 # Set outstanding shares for each day
 # can this be updated to use .ffill?()?
