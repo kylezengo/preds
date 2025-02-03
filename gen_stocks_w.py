@@ -12,6 +12,13 @@ from astral.sun import sun
 def gen_stocks_w(ticker, drop_tickers=None):
     """
     Generates stocks_w dataframe
+
+    Parameters:
+        ticker (str): Stock ticker
+        drop_tickers (binary): Whether to drop other tickers
+
+    Returns:
+        DataFrame: stocks_w dataframe
     """
     # Load data
     stocks_df_files = glob.glob('stocks_df_*.csv')
@@ -30,7 +37,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
     weather_latest = max(weather_files, key=os.path.getctime)
     weather_raw = pd.read_csv(weather_latest, parse_dates=['date'])
 
-
+    #
     stocks_df = stocks_df_raw.copy()
 
     tickers_list = [
@@ -61,8 +68,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
         'MCD','MCHP','MCK','MCO','MDLZ','MDT','MET','META','MGM','MHK','MKC','MKTX','MLM','MMC',
         'MMM','MNST','MO','MOH','MOS','MPC','MPWR','MRK','MRNA','MS','MSCI','MSFT','MSI','MTB',
         'MTCH','MTD','MU','NCLH','NDAQ','NDSN','NEE','NEM','NFLX','NI','NKE','NOC','NOW','NRG',
-        'NSC','NTAP','NTRS',
-        'NUE','NVDA','NVR',
+        'NSC','NTAP','NTRS','NUE','NVDA','NVR',
         'NWS','NWSA',
         'NXPI','O','ODFL','OKE','OMC','ON','ORCL','ORLY','OTIS','OXY','PANW','PARA','PAYC','PAYX',
         'PCAR','PCG','PEG','PEP','PFE','PFG','PG','PGR','PH','PHM','PKG','PLD','PLTR','PM','PNC',
@@ -86,7 +92,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
 
 
     # Set up data frame for testing
-    stocks_df['movement'] = stocks_df['Adj Close']*stocks_df['Volume'] 
+    stocks_df['movement'] = stocks_df['Adj Close']*stocks_df['Volume'] # should be diff from yesterday * volume
 
     stocks_df = stocks_df.merge(
         wiki_pageviews_raw[['Date','ticker','views']],how='left', on=['Date','ticker']

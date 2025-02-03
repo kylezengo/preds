@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from keras import layers, models, regularizers
+from keras import layers, models
 from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.decomposition import PCA
@@ -199,6 +199,7 @@ def strat_prophet(data, initial_train_period, ticker, target):
 
         data.loc[data.index[i-1], 'predicted_price_tomorrow'] = predicted_price_tomorrow
         data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price_tomorrow >= current_price else 0
+        # maybe also try if predicted_price_tomorrow > predicted_price_today
 
     return data, model
 
@@ -296,6 +297,7 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
+    # ValueError: Found input variables with inconsistent numbers of samples: [2194, 1]
     # score = model.score(X_test_pca, y_train)
 
     return data, model#, score
@@ -527,16 +529,14 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    # Keras
     tf.random.set_seed(random_state) # seems like the seed is very influential...
     sequence_length = keras_sequence_length  # Number of time steps (lookback window)
 
     model = models.Sequential([
         layers.Input(shape=(sequence_length, len(selected_features))),
-        layers.LSTM(64, return_sequences=True, activation='relu', dropout=0.2, recurrent_dropout=0.2),
-        layers.LSTM(32, activation='relu'),
-        layers.Dense(16, activation='relu',kernel_regularizer=regularizers.l2(0.01)),
-        layers.Dense(1, activation='sigmoid')  # Sigmoid for binary classification
+        layers.LSTM(32, activation='relu', dropout=0.2, recurrent_dropout=0.2),
+        layers.Dense(16, activation='relu'),
+        layers.Dense(1, activation='sigmoid') # Sigmoid for binary classification
     ])
 
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
