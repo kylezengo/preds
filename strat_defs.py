@@ -11,6 +11,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+# from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
@@ -388,6 +389,9 @@ def strat_svc(data, initial_train_period, svc_proba, random_state=None):
         X_train_scaled = scaler.transform(X_train)
         model.fit(X_train_scaled, y_train)
 
+        # clf = make_pipeline(StandardScaler(), SVC(gamma='auto')) # switch to this?
+        # clf.fit(X_train, y_train)
+
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
@@ -531,7 +535,7 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
     return data, model
 
 
-#
+# Backtest
 def backtest_strategy(data, initial_capital, strategy, target, ticker,
                       config: BacktestConfig, random_state=None, **kwargs):
     """
@@ -655,6 +659,7 @@ def backtest_strategy(data, initial_capital, strategy, target, ticker,
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
 
     # Stack on older data where had a training period, assume held stock during that time
+    #   might not this need anymore since rolling calculations applied in prep_data
     if min(data['Date']) != og_min_date:
         data_train_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
         data_train_period['Signal']=1
