@@ -54,6 +54,15 @@ class LogitConfig:
     pca_n_components: float = 0.95
 
 @dataclass
+class MLPConfig:
+    """
+    Logit configuration class
+    """
+    max_iter: int = 1000
+    proba: float = 0.5
+    alpha: float = 1e-5
+
+@dataclass
 class BacktestConfig:
     """
     Backtest configuration class
@@ -61,11 +70,10 @@ class BacktestConfig:
     overbought: int = 70
     xgboost_proba: float = 0.5
     svc_proba: float = 0.5
-    mlp_proba: float = 0.5
-    mlp_max_iter: int = 1000
     keras_proba: float = 0.5
     keras_sequence_length: int = 30
     logit: LogitConfig = field(default_factory=LogitConfig)
+    mlp: MLPConfig = field(default_factory=MLPConfig)
     indicator: IndicatorConfig = field(default_factory=IndicatorConfig)
 
 
@@ -470,6 +478,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
     return data, model, score
 
 def strat_svc(data, initial_train_period, svc_proba, random_state=None):
+    # WIP
     """
     Calculate forecast with SVC
     
@@ -523,14 +532,14 @@ def strat_svc(data, initial_train_period, svc_proba, random_state=None):
 
     return data, model, score
 
-def strat_mlp(data, initial_train_period, mlp_proba, mlp_max_iter, random_state=None):
+def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
     """
     Calculate forecast with MLP
     """
     model = MLPClassifier(solver='lbfgs',
-                          alpha=1e-5, hidden_layer_sizes=(5, 2),
+                          alpha=config.alpha, hidden_layer_sizes=(5, 2),
                           random_state=random_state,
-                          max_iter=mlp_max_iter)
+                          max_iter=config.max_iter)
     scaler = StandardScaler()
     le = LabelEncoder()
 
@@ -567,7 +576,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, mlp_max_iter, random_state=
             probability_column = f"proba_mlp_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_mlp_1'].fillna(1) > mlp_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_mlp_1'].fillna(1) > config.proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
@@ -784,10 +793,8 @@ def backtest_strategy(data, initial_capital, strategy,
 
     elif strategy == "MLP":
         initial_train_period = kwargs.get('initial_train_period')
-        mlp_proba = kwargs.get('mlp_proba')
-        mlp_max_iter = kwargs.get('mlp_max_iter')
-        data, model, score = strat_mlp(data, initial_train_period,
-                                       mlp_proba, mlp_max_iter, random_state)
+        data, model, score = strat_mlp(data, initial_train_period, config=config.mlp,
+                                       random_state=random_state)
 
     elif strategy == "Keras":
         initial_train_period = kwargs.get('initial_train_period')
