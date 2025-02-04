@@ -67,7 +67,6 @@ class BacktestConfig:
     indicator: IndicatorConfig = field(default_factory=IndicatorConfig)
 
 
-
  # Technical indicators
 def calculate_rsi_wide(data, ticker, target, window):
     """
@@ -722,6 +721,9 @@ def backtest_strategy(data, initial_capital, strategy,
         data, model, score = strat_xgboost_scaled(data, initial_train_period,
                                                   xgboost_proba, random_state, n_jobs)
 
+    elif strategy == "SVM":
+        pass # WIP
+
     elif strategy == "MLP":
         initial_train_period = kwargs.get('initial_train_period')
         mlp_proba = kwargs.get('mlp_proba')
@@ -737,8 +739,7 @@ def backtest_strategy(data, initial_capital, strategy,
                                   keras_proba, keras_sequence_length, random_state)
 
     elif strategy == 'Model of Models':
-        # WIP
-        pass
+        pass # WIP
 
     elif strategy == "Perfection":
         data['Signal'] = 1

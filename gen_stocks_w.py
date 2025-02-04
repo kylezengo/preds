@@ -15,7 +15,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
 
     Parameters:
         ticker (str): Stock ticker
-        drop_tickers (binary): Whether to drop other tickers
+        drop_tickers (bool): Whether to drop other tickers
 
     Returns:
         DataFrame: stocks_w dataframe
@@ -92,7 +92,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
 
 
     # Set up data frame for testing
-    stocks_df['movement'] = stocks_df['Adj Close']*stocks_df['Volume'] # should be diff from yesterday * volume
+    stocks_df['movement'] = stocks_df.groupby('ticker')['Adj Close'].diff() * stocks_df['Volume']
 
     stocks_df = stocks_df.merge(
         wiki_pageviews_raw[['Date','ticker','views']],how='left', on=['Date','ticker']
@@ -117,14 +117,10 @@ def gen_stocks_w(ticker, drop_tickers=None):
     nyc = LocationInfo("New York City", "USA", "America/New_York", 40.7128, -74.0060)
     nyc_tz = pytz.timezone("America/New_York")
 
-    stocks_w['sunrise_nyc'] = stocks_w['Date'].apply(
-        lambda d: sun(nyc.observer,date=d, tzinfo=nyc_tz)['sunrise']
+    stocks_w['sunlight_nyc'] = stocks_w['Date'].apply(
+        lambda d: (sun(nyc.observer, date=d, tzinfo=nyc_tz)['sunset'] -
+                   sun(nyc.observer, date=d, tzinfo=nyc_tz)['sunrise']).total_seconds()
     )
-    stocks_w['sunset_nyc'] = stocks_w['Date'].apply(
-        lambda d: sun(nyc.observer, date=d, tzinfo=nyc_tz)['sunset']
-    )
-    stocks_w['sunlight_nyc'] = (stocks_w['sunset_nyc']-stocks_w['sunrise_nyc']).dt.total_seconds()
-    stocks_w = stocks_w.drop(columns=['sunrise_nyc','sunset_nyc'])
 
     # Federal funds rate
     stocks_w = stocks_w.merge(ffr_raw,on='Date',how='left')
