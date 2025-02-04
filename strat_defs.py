@@ -17,36 +17,9 @@ from xgboost import XGBClassifier
 
 
 @dataclass
-class MovingAverageConfig:
-    """
-    Moving average configuration class
-    """
-    short_window: int = 20
-    long_window: int = 50
-
-@dataclass
-class BollingerConfig:
-    """
-    Bollinger configuration class
-    """
-    window: int = 20
-    num_std: float = 2.0
-
-@dataclass
-class IndicatorConfig:
-    """
-    Configuration class for technical indicators used in forecasting strategies.
-    """
-    ticker: str
-    target: str
-    rsi_window: int = 30
-    moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
-    bollinger: BollingerConfig = field(default_factory=BollingerConfig)
-
-@dataclass
 class LogitConfig:
     """
-    MLP configuration class
+    Logistic Regression configuration class
     """
     max_iter: int = 1000
     proba: float = 0.5
@@ -56,12 +29,21 @@ class LogitConfig:
 @dataclass
 class MLPConfig:
     """
-    Logit configuration class
+    MLP configuration class
     """
     max_iter: int = 1000
     proba: float = 0.5
     alpha: float = 1e-5
     hidden_layer_sizes: tuple = (32, 16)
+
+@dataclass
+class KerasConfig:
+    """
+    Keras configuration class
+    """
+    proba: float = 0.5
+    sequence_length: int = 30
+    epochs: int = 20
 
 @dataclass
 class BacktestConfig:
@@ -71,128 +53,21 @@ class BacktestConfig:
     overbought: int = 70
     xgboost_proba: float = 0.5
     svc_proba: float = 0.5
-    keras_proba: float = 0.5
-    keras_sequence_length: int = 30
     logit: LogitConfig = field(default_factory=LogitConfig)
     mlp: MLPConfig = field(default_factory=MLPConfig)
-    indicator: IndicatorConfig = field(default_factory=IndicatorConfig)
+    keras: KerasConfig = field(default_factory=KerasConfig)
 
-
- # Technical indicators
-def calculate_rsi_wide(data, ticker, target, window):
-    """
-    Calculate the Relative Strength Index (RSI).
-    
-    Parameters:
-        data (DataFrame): Stock data with target prices.
-        ticker (str): Stock ticker
-        target (str): column to predict (usually Adj Close)
-        window (int): Lookback period for RSI.
-        
-    Returns:
-        Series: RSI values.
-    """
-    delta = data[target+"_"+ticker].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-
-    avg_gain = pd.Series(gain).rolling(window=window).mean()
-    avg_loss = pd.Series(loss).rolling(window=window).mean()
-
-    rs = avg_gain / avg_loss
-
-    return 100 - (100 / (1 + rs))
-
-def calculate_rsi_long(data, target, window):
-    """
-    Calculate the Relative Strength Index (RSI).
-    
-    Parameters:
-        data (DataFrame): Stock data with target prices.
-        target (str): column to predict (usually Adj Close)
-        window (int): Lookback period for RSI.
-        
-    Returns:
-        Series: RSI values.
-    """
-    delta = data[target].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-
-    avg_gain = pd.Series(gain).rolling(window=window).mean()
-    avg_loss = pd.Series(loss).rolling(window=window).mean()
-
-    rs = avg_gain / avg_loss
-
-    return 100 - (100 / (1 + rs))
-
-def calculate_vwap_wide(data, ticker, target):
-    """
-    Calculate Volume Weighted Average Price
-
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        ticker (str): Stock ticker
-        target (str): column to predict (usually Adj Close)
-
-    Returns:
-       
-    """
-    cumulative_volume = data["Volume_"+ticker].cumsum()
-    cumulative_price_volume = (data[target+"_"+ticker] * data["Volume_"+ticker]).cumsum()
-    return cumulative_price_volume / cumulative_volume
-
-def calculate_vwap_long(data, target):
-    """
-    Calculate Volume Weighted Average Price
-
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        target (str): column to predict (usually Adj Close)
-
-    Returns:
-       
-    """
-    cumulative_volume = data['Volume'].cumsum()
-    cumulative_price_volume = (data[target] * data['Volume']).cumsum()
-    return cumulative_price_volume / cumulative_volume
-
-def calculate_technical_indicators(data, config: IndicatorConfig):
-    """
-    Calculate technical indicators for the dataset.
-
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        config (IndicatorConfig): Configuration object for technical indicators.
-
-    Returns:
-        DataFrame: Original dataframe with technical indicators included 
-    """
-    target_ticker = config.target+"_"+config.ticker
-    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi_window)
-    data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
-    data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
-    data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
-    data['Bollinger_Upper'] = (data['MA_B'] +
-                               config.bollinger.num_std *
-                               data[target_ticker].rolling(window=config.bollinger.window).std())
-    data['Bollinger_Lower'] = (data['MA_B'] -
-                               config.bollinger.num_std *
-                               data[target_ticker].rolling(window=config.bollinger.window).std())
-    data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
-
-    return data
-
-
-# ML models
-def strat_prophet(data, initial_train_period, ticker, target):
+# Models
+def strat_prophet(data, initial_train_period, target, ticker):
     """
     Calculate forecast with Facebook Prophet  
     """
     model = Prophet(daily_seasonality=True, yearly_seasonality=True)
 
-    data_simp = data[['Date',target+"_"+ticker]]
-    data_simp = data_simp.rename(columns={'Date': 'ds',target+"_"+ticker:'y'})
+    target_ticker = target+"_"+ticker
+
+    data_simp = data[['Date',target_ticker]]
+    data_simp = data_simp.rename(columns={'Date': 'ds',target_ticker:'y'})
 
     for i in range(initial_train_period, len(data)):
         data_simp_cut = data_simp.iloc[:i]
@@ -205,7 +80,7 @@ def strat_prophet(data, initial_train_period, ticker, target):
         forecast = model.predict(future)
 
         predicted_price_tomorrow = forecast['yhat'].iloc[0]
-        current_price = data.loc[data.index[i - 1], target+"_"+ticker]
+        current_price = data.loc[data.index[i - 1], target_ticker]
 
         data.loc[data.index[i-1], 'predicted_price_tomorrow'] = predicted_price_tomorrow
         data.loc[data.index[i-1], 'Signal'] = 1 if predicted_price_tomorrow >= current_price else 0
@@ -583,7 +458,7 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
 
     return data, model, score
 
-def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, random_state=None):
+def strat_keras(data, initial_train_period, config: KerasConfig, random_state=None):
     """
     Calculate forecast with Keras
     """
@@ -595,7 +470,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
     data = data.dropna().copy()
 
     tf.random.set_seed(random_state) # seems like the seed is very influential...
-    sequence_length = keras_sequence_length  # Number of time steps (lookback window)
+    sequence_length = config.sequence_length  # Number of time steps (lookback window)
 
     model = models.Sequential([
         layers.Input(shape=(sequence_length, len(selected_features))),
@@ -634,7 +509,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
         X_test_1, y_test_1 = X[train_size:], y[train_size:]
 
         # Train the Model
-        model.fit(X_train_1, y_train_1, epochs=50, batch_size=16,
+        model.fit(X_train_1, y_train_1, epochs=config.epochs, batch_size=16,
                   validation_data=(X_test_1, y_test_1), verbose=0)
 
         # Predict the next day - use the last sequence_length rows of all features as input
@@ -643,7 +518,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
 
         # Make the prediction
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
-        sig_check = 0 if next_day_prediction < keras_proba else 1
+        sig_check = 0 if next_day_prediction < config.proba else 1
         print(f"sig: {sig_check}; "
               f"Date: {max(train_data['Date']).strftime('%Y-%m-%d')}; "
               f"next_day_pred: {next_day_prediction} "
@@ -651,13 +526,13 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
 
         data.loc[data.index[i], 'next_day_prediction'] = next_day_prediction
 
-    data['Signal'] = np.where(data['next_day_prediction'].fillna(1) > keras_proba, 1, 0)
+    data['Signal'] = np.where(data['next_day_prediction'].fillna(1) > config.proba, 1, 0)
 
     return data, model
 
 
 #
-def backtest_strategy(data, initial_capital, strategy,
+def backtest_strategy(data, initial_capital, strategy, target, ticker,
                       config: BacktestConfig, random_state=None, **kwargs):
     """
     Backtest various trading strategies.
@@ -683,39 +558,7 @@ def backtest_strategy(data, initial_capital, strategy,
     model = None
     score = None
 
-    target_ticker = config.indicator.target+"_"+config.indicator.ticker
-
-    data = calculate_technical_indicators(data, config.indicator)
-    data['Target'] = np.where((data[target_ticker].shift(-1)-data[target_ticker]) < 0, 0, 1)
-
-    data['yesterday_to_today'] = np.where(
-        (data[target_ticker]-data[target_ticker].shift(1)) < 0, 0, 1
-    )
-
-    # Calculate the length of consecutive streaks of up or down days
-    data['streak'] = data.groupby(
-        (data['yesterday_to_today'] != data['yesterday_to_today'].shift(1)).cumsum()
-    ).cumcount()+1
-
-    data['streak0'] = np.where(data['yesterday_to_today']==1,0,data['streak'])
-    data['streak1'] = np.where(data['yesterday_to_today']==0,0,data['streak'])
-
-    data = data.drop(columns=['yesterday_to_today','streak'])
-
-    # Must be inside the strategies ##################################
-    # data['next_is_0'] = (data['yesterday_to_today'].shift(-1) == 0).astype(int) # leak
-    # data['next_is_1'] = (data['yesterday_to_today'].shift(-1) == 1).astype(int)
-
-    # # prob of a 0 or 1 following a streak length
-    # prob_df_0 = data.groupby('streak0')['next_is_0'].mean().to_frame() # leak?
-    # prob_df_0 = prob_df_0.rename(columns={'next_is_0': 'prob_next_is_0'})
-    # prob_df_1 = data.groupby('streak1')['next_is_1'].mean().to_frame()
-    # prob_df_1 = prob_df_1.rename(columns={'next_is_1': 'prob_next_is_1'})
-
-    # # Merge probabilities back into original DataFrame
-    # data = data.merge(prob_df_0, how='left', left_on='streak0', right_index=True)
-    # data = data.merge(prob_df_1, how='left', left_on='streak1', right_index=True)
-    ##################################################################
+    target_ticker = target+"_"+ticker
 
     # Strategies
     if strategy == "Hold":
@@ -798,10 +641,8 @@ def backtest_strategy(data, initial_capital, strategy,
 
     elif strategy == "Keras":
         initial_train_period = kwargs.get('initial_train_period')
-        keras_proba = kwargs.get('keras_proba')
-        keras_sequence_length = kwargs.get('keras_sequence_length')
-        data, model = strat_keras(data, initial_train_period,
-                                  keras_proba, keras_sequence_length, random_state)
+        data, model = strat_keras(data, initial_train_period, config=config.keras,
+                                  random_state=random_state)
 
     elif strategy == 'Model of Models':
         pass # WIP
@@ -819,7 +660,6 @@ def backtest_strategy(data, initial_capital, strategy,
         data_train_period['Signal']=1
         data = pd.concat([data_train_period,data])
 
-    data['Daily_Return'] = data[target_ticker].pct_change()
     data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
     data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
 
