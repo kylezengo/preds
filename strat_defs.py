@@ -46,7 +46,7 @@ class IndicatorConfig:
 @dataclass
 class LogitConfig:
     """
-    Logit configuration class
+    MLP configuration class
     """
     max_iter: int = 1000
     proba: float = 0.5
@@ -61,6 +61,7 @@ class MLPConfig:
     max_iter: int = 1000
     proba: float = 0.5
     alpha: float = 1e-5
+    hidden_layer_sizes: tuple = (32, 16)
 
 @dataclass
 class BacktestConfig:
@@ -225,7 +226,7 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
     scaler = StandardScaler()
     le = LabelEncoder()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -270,7 +271,7 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
     le = LabelEncoder()
     pca = PCA(n_components=config.pca_n_components)
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -317,7 +318,7 @@ def strat_random_forest(data, initial_train_period, random_state=None, njobs=Non
     """
     model = RandomForestClassifier(random_state=random_state, n_jobs=njobs)
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -352,7 +353,7 @@ def strat_gradient_boost(data, initial_train_period, random_state=None):
     """
     model = GradientBoostingClassifier(random_state=random_state)
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -399,7 +400,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     le = LabelEncoder()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -438,7 +439,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
     le = LabelEncoder()
     scaler = StandardScaler()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -496,7 +497,7 @@ def strat_svc(data, initial_train_period, svc_proba, random_state=None):
     scaler = StandardScaler()
     le = LabelEncoder()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -537,13 +538,13 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
     Calculate forecast with MLP
     """
     model = MLPClassifier(solver='lbfgs',
-                          alpha=config.alpha, hidden_layer_sizes=(5, 2),
+                          alpha=config.alpha, hidden_layer_sizes=config.hidden_layer_sizes,
                           random_state=random_state,
                           max_iter=config.max_iter)
     scaler = StandardScaler()
     le = LabelEncoder()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -573,10 +574,10 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_mlp_{class_name}"
+            probability_column = f"proba_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_mlp_1'].fillna(1) > config.proba, 1, 0)
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
@@ -588,7 +589,7 @@ def strat_keras(data, initial_train_period, keras_proba, keras_sequence_length, 
     """
     scaler = StandardScaler()
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target','MA_B']]
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
@@ -699,8 +700,9 @@ def backtest_strategy(data, initial_capital, strategy,
     data['streak0'] = np.where(data['yesterday_to_today']==1,0,data['streak'])
     data['streak1'] = np.where(data['yesterday_to_today']==0,0,data['streak'])
 
+    data = data.drop(columns=['yesterday_to_today','streak'])
 
-    # Needs to be inside the strategies ##############################
+    # Must be inside the strategies ##################################
     # data['next_is_0'] = (data['yesterday_to_today'].shift(-1) == 0).astype(int) # leak
     # data['next_is_1'] = (data['yesterday_to_today'].shift(-1) == 1).astype(int)
 
@@ -714,8 +716,6 @@ def backtest_strategy(data, initial_capital, strategy,
     # data = data.merge(prob_df_0, how='left', left_on='streak0', right_index=True)
     # data = data.merge(prob_df_1, how='left', left_on='streak1', right_index=True)
     ##################################################################
-
-    data = data.drop(columns=['MA_B','yesterday_to_today','streak'])
 
     # Strategies
     if strategy == "Hold":
