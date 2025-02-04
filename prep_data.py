@@ -1,4 +1,4 @@
-"""This module builds stocks_w"""
+"""This module builds prepd_data"""
 
 import glob
 import os
@@ -46,8 +46,8 @@ def calculate_rsi_wide(data, target, ticker, window):
     
     Parameters:
         data (DataFrame): Stock data with target prices.
-        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
+        ticker (str): Stock ticker
         window (int): Lookback period for RSI.
         
     Returns:
@@ -93,8 +93,8 @@ def calculate_vwap_wide(data, target, ticker):
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        ticker (str): Stock ticker
         target (str): column to predict (usually Adj Close)
+        ticker (str): Stock ticker
 
     Returns:
         Series: VWAP values.
@@ -130,7 +130,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
         DataFrame: Original dataframe with technical indicators included 
     """
     target_ticker = config.target+"_"+config.ticker
-    data['RSI'] = calculate_rsi_wide(data, config.ticker, config.target, window=config.rsi_window)
+    data['RSI'] = calculate_rsi_wide(data, config.target, config.ticker, window=config.rsi_window)
     data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
     data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
     data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
@@ -140,7 +140,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
     data['Bollinger_Lower'] = (data['MA_B'] -
                                config.bollinger.num_std *
                                data[target_ticker].rolling(window=config.bollinger.window).std())
-    data['VWAP'] = calculate_vwap_wide(data, config.ticker, config.target)
+    data['VWAP'] = calculate_vwap_wide(data, config.target, config.ticker)
 
     return data
 
@@ -245,7 +245,14 @@ def gen_stocks_w(ticker, drop_tickers=None):
 
 def prep_data(config: IndicatorConfig, drop_tickers=None):
     """
-    Preoare data for forecasting strategies (add some extra features)
+    Prepare data for forecasting strategies (add some extra features).
+
+    Parameters:
+        config (IndicatorConfig): Configuration object for technical indicators.
+        drop_tickers (bool): Whether to drop other tickers.
+
+    Returns:
+        DataFrame: Prepared data with additional features and technical indicators.
     """
     ffr_files = glob.glob('ffr_*.csv')
     ffr_latest = max(ffr_files, key=os.path.getctime)
