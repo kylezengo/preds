@@ -1,4 +1,3 @@
-
 """Create an interactive plot in a browser window"""
 
 import glob
@@ -9,7 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from dash import Dash, html, dcc, Output, Input
 
-import strat_defs # custom functions from github
+import prep_data # custom functions
 
 app = Dash()
 
@@ -89,7 +88,8 @@ app.layout = html.Div(
      Input('bstd-input', 'value')]
 )
 
-def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window, bollinger_window, bollinger_num_std):
+def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window, 
+                 bollinger_window, bollinger_num_std):
     """
     Update graph
     """
@@ -98,11 +98,15 @@ def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_wi
     # Daily prices with moving averages and RSI
     chart_df['SMA_Short'] = chart_df['Adj Close'].rolling(window=short_window).mean()
     chart_df['SMA_Long'] = chart_df['Adj Close'].rolling(window=long_window).mean()
-    chart_df['RSI'] = strat_defs.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
+    chart_df['RSI'] = prep_data.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
 
     chart_df['MA_B'] = chart_df['Adj Close'].rolling(window=bollinger_window).mean()
-    chart_df['Bollinger_Upper'] = chart_df['MA_B'] + bollinger_num_std * chart_df['Adj Close'].rolling(window=bollinger_window).std()
-    chart_df['Bollinger_Lower'] = chart_df['MA_B'] - bollinger_num_std * chart_df['Adj Close'].rolling(window=bollinger_window).std()
+    chart_df['Bollinger_Upper'] = (chart_df['MA_B'] +
+                                   bollinger_num_std *
+                                   chart_df['Adj Close'].rolling(window=bollinger_window).std())
+    chart_df['Bollinger_Lower'] = (chart_df['MA_B'] -
+                                   bollinger_num_std *
+                                   chart_df['Adj Close'].rolling(window=bollinger_window).std())
 
     fig_sub = make_subplots(rows=2, cols=1,
                             shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.7,0.3])
