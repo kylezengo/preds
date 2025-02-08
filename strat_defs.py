@@ -345,10 +345,10 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
         for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_xgboost_scaled_{class_name}"
+            probability_column = f"proba_{class_name}"
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
-    data['Signal'] = np.where(data['proba_xgboost_scaled_1'].fillna(1) > xgboost_proba, 1, 0)
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
     score = model.score(X_train_scaled, y_train)
 
