@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 # from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC, SVC
 from xgboost import XGBClassifier
 
 
@@ -354,8 +354,59 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
 
     return data, model, score
 
-def strat_svc(data, initial_train_period, svc_proba, random_state=None):
-    # WIP
+def strat_svc(data, initial_train_period, random_state=None):
+    """
+    Calculate forecast with SVC
+    
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        random_state (int, optional): Random state for reproducibility.
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained SVC model.
+        score: Model accuracy score.
+    """
+    model = SVC(random_state=random_state)
+    scaler = StandardScaler()
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform(train_data['Target'])
+
+        # Fit the scaler on the training data, scale training data and fit model
+        scaler.fit(X_train)
+        X_train_scaled = scaler.transform(X_train)
+        model.fit(X_train_scaled, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+
+        # predict
+        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
+
+    data['Signal'] = data['Signal'].fillna(1)
+
+    score = model.score(X_train_scaled, y_train)
+    score = model.score(X_train_scaled, y_train)
+
+    return data, model, score
+
+def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
     """
     Calculate forecast with SVC
     
@@ -407,6 +458,60 @@ def strat_svc(data, initial_train_period, svc_proba, random_state=None):
             data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > svc_proba, 1, 0)
+
+    score = model.score(X_train_scaled, y_train)
+
+    return data, model, score
+
+def strat_linear_svc(data, initial_train_period, random_state=None):
+    """
+    Calculate forecast with SVC
+    
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        random_state (int, optional): Random state for reproducibility.
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained Linear SVC model.
+        score: Model accuracy score.
+    """
+    model = LinearSVC(random_state=random_state)
+    scaler = StandardScaler()
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform(train_data['Target'])
+
+        # Fit the scaler on the training data, scale training data and fit model
+        scaler.fit(X_train)
+        X_train_scaled = scaler.transform(X_train)
+        model.fit(X_train_scaled, y_train)
+
+        # clf = make_pipeline(StandardScaler(), SVC(gamma='auto')) # switch to this?
+        # clf.fit(X_train, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Scale test data using already fitted scaler
+        X_test_scaled = scaler.transform(X_test)
+
+        # predict
+        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
+
+    data['Signal'] = data['Signal'].fillna(1)
 
     score = model.score(X_train_scaled, y_train)
 
@@ -635,8 +740,16 @@ def backtest_strategy(data, initial_capital, strategy, target, ticker,
 
     elif strategy == "SVC":
         initial_train_period = kwargs.get('initial_train_period')
+        data, model, score = strat_svc(data, initial_train_period, random_state)
+
+    elif strategy == "SVC_proba":
+        initial_train_period = kwargs.get('initial_train_period')
         svc_proba = kwargs.get('svc_proba')
-        data, model, score = strat_svc(data, initial_train_period, svc_proba, random_state)
+        data, model, score = strat_svc_proba(data, initial_train_period, svc_proba, random_state)
+
+    elif strategy == "LinearSVC":
+        initial_train_period = kwargs.get('initial_train_period')
+        data, model, score = strat_linear_svc(data, initial_train_period, random_state)
 
     elif strategy == "MLP":
         initial_train_period = kwargs.get('initial_train_period')

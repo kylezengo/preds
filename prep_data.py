@@ -317,6 +317,12 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
 
     prepd_data['Daily_Return'] = prepd_data[target_ticker].pct_change()
 
+    # Day of week
+    prepd_data['day_of_week_name'] = prepd_data['Date'].dt.day_name()
+
+    prepd_data = pd.get_dummies(prepd_data, columns=['day_of_week_name'],
+                                drop_first=True, dtype=int)
+
     # Target
     prepd_data['Target'] = np.where(
         (prepd_data[target_ticker].shift(-1)-prepd_data[target_ticker]) < 0, 0, 1
