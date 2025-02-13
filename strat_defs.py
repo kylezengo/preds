@@ -10,6 +10,7 @@ from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 # from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -52,6 +53,7 @@ class BacktestConfig:
     Backtest configuration class
     """
     overbought: int = 70
+    knn_proba: float = 0.5
     xgboost_proba: float = 0.5
     svc_proba: float = 0.5
     logit: LogitConfig = field(default_factory=LogitConfig)
@@ -206,6 +208,7 @@ def strat_random_forest(data, initial_train_period, random_state=None, njobs=Non
     data['Signal'] = 1
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
+
         X_train = X.iloc[:i]
         y_train = y.iloc[:i]
 
@@ -217,6 +220,44 @@ def strat_random_forest(data, initial_train_period, random_state=None, njobs=Non
 
         X_test = X.iloc[i:prediction_end]
         data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
+
+    score = model.score(X_train, y_train)
+
+    return data, model, score
+
+def strat_knn(data, initial_train_period, knn_proba, njobs=None):
+    """
+    Forecast with K Nearest Neighbors Classifier 
+    """
+    model = KNeighborsClassifier(n_jobs=njobs)
+    le = LabelEncoder()
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = le.fit_transform( train_data['Target'] )
+
+        # Train the model
+        model.fit(X_train, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # store the probabilities for each class in separate columns
+        pred_probs = model.predict_proba(X_test)
+        for class_index, class_name in enumerate(le.classes_):
+            probability_column = f"proba_{class_name}"
+            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > knn_proba, 1, 0)
 
     score = model.score(X_train, y_train)
 
@@ -719,6 +760,12 @@ def backtest_strategy(data, initial_capital, strategy, target, ticker,
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strat_random_forest(data, initial_train_period,
                                                  random_state, n_jobs)
+
+    elif strategy == "KNN":
+        initial_train_period = kwargs.get('initial_train_period')
+        knn_proba = kwargs.get('knn_proba')
+        n_jobs = kwargs.get('n_jobs')
+        data, model, score = strat_knn(data, initial_train_period, knn_proba, n_jobs)
 
     elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
