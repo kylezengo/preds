@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 # from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC, SVC
 from xgboost import XGBClassifier
 
@@ -102,7 +102,6 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
     model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -113,7 +112,7 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform(train_data['Target'])
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data, scale training data and fit model
         scaler.fit(X_train)
@@ -130,9 +129,9 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
@@ -146,7 +145,6 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
     """
     model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
-    le = LabelEncoder()
     pca = PCA(n_components=config.pca_n_components)
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
@@ -158,7 +156,7 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform( train_data['Target'] )
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data, scale training data and fit model
         scaler.fit(X_train)
@@ -179,9 +177,9 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_pca)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
@@ -230,7 +228,6 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
     Forecast with K Nearest Neighbors Classifier 
     """
     model = KNeighborsClassifier(n_jobs=njobs)
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -241,7 +238,7 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform( train_data['Target'] )
+        y_train = train_data['Target']
 
         # Train the model
         model.fit(X_train, y_train)
@@ -253,9 +250,9 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > knn_proba, 1, 0)
 
@@ -315,7 +312,6 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         score: Model accuracy score.
     """
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -326,7 +322,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform( train_data['Target'] )
+        y_train = train_data['Target']
 
         # Train the model
         model.fit(X_train, y_train)
@@ -338,9 +334,9 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
@@ -353,7 +349,6 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
     Calculate forecast with XGBoost scaled
     """
     model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-    le = LabelEncoder()
     scaler = StandardScaler()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
@@ -365,7 +360,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform( train_data['Target'] )
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data
         scaler.fit(X_train)
@@ -385,9 +380,9 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
@@ -411,7 +406,6 @@ def strat_svc(data, initial_train_period, random_state=None):
     """
     model = SVC(random_state=random_state)
     scaler = StandardScaler()
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -422,7 +416,7 @@ def strat_svc(data, initial_train_period, random_state=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform(train_data['Target'])
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data, scale training data and fit model
         scaler.fit(X_train)
@@ -463,7 +457,6 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
     """
     model = SVC(probability=True, random_state=random_state)
     scaler = StandardScaler()
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -474,7 +467,7 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform(train_data['Target'])
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data, scale training data and fit model
         scaler.fit(X_train)
@@ -494,9 +487,10 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
+
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > svc_proba, 1, 0)
 
@@ -520,7 +514,6 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
     """
     model = LinearSVC(random_state=random_state)
     scaler = StandardScaler()
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -531,7 +524,7 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform(train_data['Target'])
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data, scale training data and fit model
         scaler.fit(X_train)
@@ -567,7 +560,6 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
                           random_state=random_state,
                           max_iter=config.max_iter)
     scaler = StandardScaler()
-    le = LabelEncoder()
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -578,7 +570,7 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
         X_train = train_data[selected_features]
-        y_train = le.fit_transform( train_data['Target'] )
+        y_train = train_data['Target']
 
         # Fit the scaler on the training data
         scaler.fit(X_train)
@@ -598,9 +590,9 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
 
         # store the probabilities for each class in separate columns
         pred_probs = model.predict_proba(X_test_scaled)
-        for class_index, class_name in enumerate(le.classes_):
-            probability_column = f"proba_{class_name}"
-            data.loc[data.index[i:prediction_end], probability_column] = pred_probs[:, class_index]
+
+        data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
+        data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
