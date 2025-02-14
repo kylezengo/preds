@@ -100,8 +100,10 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
         model: Trained logistic regression model.
         score: Model accuracy score.
     """
-    model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
-    scaler = StandardScaler()
+    pipeline = make_pipeline(
+        StandardScaler(),
+        LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -114,28 +116,24 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data, scale training data and fit model
-        scaler.fit(X_train)
-        X_train_scaled = scaler.transform(X_train)
-        model.fit(X_train_scaled, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test_scaled)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
-    score = model.score(X_train_scaled, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['logisticregression']
 
     return data, model, score
 
@@ -143,6 +141,11 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
     """
     Calculate forecast with logistic regression  
     """
+    # pipeline = make_pipeline(
+    #     StandardScaler(),
+    #     PCA(n_components=config.pca_n_components),
+    #     LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
+    # )
     model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     scaler = StandardScaler()
     pca = PCA(n_components=config.pca_n_components)
@@ -312,7 +315,6 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         score: Model accuracy score.
     """
     pipeline = make_pipeline(
-        StandardScaler(),
         XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     )
 
@@ -352,8 +354,10 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
     """
     Calculate forecast with XGBoost scaled
     """
-    model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-    scaler = StandardScaler()
+    pipeline = make_pipeline(
+        StandardScaler(),
+        XGBClassifier(random_state=random_state, n_jobs=n_jobs)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -366,31 +370,24 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data
-        scaler.fit(X_train)
-
-        # Scale training data and fit model
-        X_train_scaled = scaler.transform(X_train)
-
-        model.fit(X_train_scaled, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test_scaled)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
-    score = model.score(X_train_scaled, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['xgbclassifier']
 
     return data, model, score
 
