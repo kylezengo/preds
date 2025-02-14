@@ -311,9 +311,10 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         model: Trained XGBoost model.
         score: Model accuracy score.
     """
-    model = XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-
-    pipeline = make_pipeline(StandardScaler(), model)
+    pipeline = make_pipeline(
+        StandardScaler(),
+        XGBClassifier(random_state=random_state, n_jobs=n_jobs)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -342,7 +343,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
-    score = model.score(X_train, y_train)
+    score = pipeline.score(X_train, y_train)
     model = pipeline.named_steps['xgbclassifier']
 
     return data, model, score
@@ -407,8 +408,10 @@ def strat_svc(data, initial_train_period, random_state=None):
         model: Trained SVC model.
         score: Model accuracy score.
     """
-    model = SVC(random_state=random_state)
-    scaler = StandardScaler()
+    pipeline = make_pipeline(
+        StandardScaler(),
+        SVC(random_state=random_state)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -421,26 +424,21 @@ def strat_svc(data, initial_train_period, random_state=None):
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data, scale training data and fit model
-        scaler.fit(X_train)
-        X_train_scaled = scaler.transform(X_train)
-        model.fit(X_train_scaled, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-
-        # predict
-        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test_scaled)
+        # Predict using the pipeline (scales automatically)
+        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
 
     data['Signal'] = data['Signal'].fillna(1)
 
-    score = model.score(X_train_scaled, y_train)
-    score = model.score(X_train_scaled, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['svc']
 
     return data, model, score
 
@@ -458,8 +456,10 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
         model: Trained SVC model.
         score: Model accuracy score.
     """
-    model = SVC(probability=True, random_state=random_state)
-    scaler = StandardScaler()
+    pipeline = make_pipeline(
+        StandardScaler(),
+        SVC(probability=True, random_state=random_state)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -472,32 +472,24 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data, scale training data and fit model
-        scaler.fit(X_train)
-        X_train_scaled = scaler.transform(X_train)
-        model.fit(X_train_scaled, y_train)
-
-        # clf = make_pipeline(StandardScaler(), SVC(gamma='auto')) # switch to this?
-        # clf.fit(X_train, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test_scaled)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
-
     data['Signal'] = np.where(data['proba_1'].fillna(1) > svc_proba, 1, 0)
 
-    score = model.score(X_train_scaled, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['svc']
 
     return data, model, score
 
@@ -515,9 +507,10 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
         model: Trained Linear SVC model.
         score: Model accuracy score.
     """
-    model = LinearSVC(random_state=random_state)
-
-    pipeline = make_pipeline(StandardScaler(), model)
+    pipeline = make_pipeline(
+        StandardScaler(),
+        LinearSVC(random_state=random_state)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -545,7 +538,7 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
 
     score = pipeline.score(X_train, y_train)
     model = pipeline.named_steps['linearsvc']
-    
+
     return data, model, score
 
 def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
