@@ -63,7 +63,7 @@ class BacktestConfig:
 # Models
 def strat_prophet(data, initial_train_period, target, ticker):
     """
-    Calculate forecast with Facebook Prophet  
+    Forecast with Facebook Prophet  
     """
     model = Prophet(daily_seasonality=True, yearly_seasonality=True)
 
@@ -93,7 +93,7 @@ def strat_prophet(data, initial_train_period, target, ticker):
 
 def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
-    Calculate forecast with logistic regression
+    Forecast with logistic regression
     
     Returns:
         DataFrame: Data with strategy signals.
@@ -139,16 +139,13 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
 
 def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
-    Calculate forecast with logistic regression  
+    Forecast with logistic regression  
     """
-    # pipeline = make_pipeline(
-    #     StandardScaler(),
-    #     PCA(n_components=config.pca_n_components),
-    #     LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
-    # )
-    model = LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
-    scaler = StandardScaler()
-    pca = PCA(n_components=config.pca_n_components)
+    pipeline = make_pipeline(
+        StandardScaler(),
+        PCA(n_components=config.pca_n_components),
+        LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -161,25 +158,16 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data, scale training data and fit model
-        scaler.fit(X_train)
-        X_train_scaled = scaler.transform(X_train)
-
-        pca.fit(X_train_scaled)
-        X_train_pca = pca.transform(X_train_scaled)
-        model.fit(X_train_pca, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-        X_test_pca = pca.transform(X_test_scaled)
-
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test_pca)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
@@ -188,49 +176,17 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
 
     # ValueError: Found input variables with inconsistent numbers of samples: [2194, 1]
     # score = model.score(X_test_pca, y_train)
+    model = pipeline.named_steps['logisticregression']
 
     return data, model#, score
 
 def strat_random_forest(data, initial_train_period, random_state=None, njobs=None):
     """
-    Calculate forecast with random forest  
+    Forecast with random forest  
     """
-    model = RandomForestClassifier(random_state=random_state, n_jobs=njobs)
-
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    # Define features and target
-    X = data[selected_features]
-    y = data['Target']
-
-    data['Signal'] = 1
-    for i in range(initial_train_period, len(data)):
-        # Train only on past data up to the current point
-
-        X_train = X.iloc[:i]
-        y_train = y.iloc[:i]
-
-        # Train the model
-        model.fit(X_train, y_train)
-
-        # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-
-        X_test = X.iloc[i:prediction_end]
-        data.loc[data.index[i:prediction_end], 'Signal'] = model.predict(X_test)
-
-    score = model.score(X_train, y_train)
-
-    return data, model, score
-
-def strat_knn(data, initial_train_period, knn_proba, njobs=None):
-    """
-    Forecast with K Nearest Neighbors Classifier 
-    """
-    model = KNeighborsClassifier(n_jobs=njobs)
+    pipeline = make_pipeline(
+        RandomForestClassifier(random_state=random_state, n_jobs=njobs)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -243,8 +199,45 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Train the model
-        model.fit(X_train, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
+
+        # Predict for the next day
+        prediction_end = min(i + 1, len(data))
+        test_data = data.iloc[i:prediction_end]
+        X_test = test_data[selected_features]
+
+        # Predict using the pipeline (scales automatically)
+        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
+
+    data['Signal'] = data['Signal'].fillna(1)
+
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['linearsvc']
+
+    return data, model, score
+
+def strat_knn(data, initial_train_period, knn_proba, njobs=None):
+    """
+    Forecast with K Nearest Neighbors Classifier 
+    """
+    pipeline = make_pipeline(
+        KNeighborsClassifier(n_jobs=njobs)
+    )
+
+    selected_features = [x for x in list(data) if x not in ['Date','Target']]
+
+    # Drop rows with missing values due to rolling calculations
+    data = data.dropna().copy()
+
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[selected_features]
+        y_train = train_data['Target']
+
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
@@ -252,20 +245,21 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
         X_test = test_data[selected_features]
 
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > knn_proba, 1, 0)
 
-    score = model.score(X_train, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['kneighborsclassifier']
 
     return data, model, score
 
 def strat_gradient_boost(data, initial_train_period, random_state=None):
     """
-    Calculate forecast with sklearn's GradientBoostingClassifier 
+    Forecast with sklearn's GradientBoostingClassifier 
     Probably better to use XGBoost instead (much faster)
     """
     model = GradientBoostingClassifier(random_state=random_state)
@@ -300,7 +294,7 @@ def strat_gradient_boost(data, initial_train_period, random_state=None):
 
 def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
-    Calculate forecast with XGBoost
+    Forecast with XGBoost
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -352,7 +346,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
 
 def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
-    Calculate forecast with XGBoost scaled
+    Forecast with XGBoost scaled
     """
     pipeline = make_pipeline(
         StandardScaler(),
@@ -393,7 +387,7 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
 
 def strat_svc(data, initial_train_period, random_state=None):
     """
-    Calculate forecast with SVC
+    Forecast with SVC
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -441,7 +435,7 @@ def strat_svc(data, initial_train_period, random_state=None):
 
 def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
     """
-    Calculate forecast with SVC
+    Forecast with SVC
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -492,7 +486,7 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
 
 def strat_linear_svc(data, initial_train_period, random_state=None):
     """
-    Calculate forecast with SVC
+    Forecast with SVC
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -542,11 +536,13 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
     """
     Calculate forecast with MLP
     """
-    model = MLPClassifier(solver='lbfgs',
-                          alpha=config.alpha, hidden_layer_sizes=config.hidden_layer_sizes,
-                          random_state=random_state,
-                          max_iter=config.max_iter)
-    scaler = StandardScaler()
+    pipeline = make_pipeline(
+        StandardScaler(),
+        MLPClassifier(solver='lbfgs',
+                      alpha=config.alpha, hidden_layer_sizes=config.hidden_layer_sizes,
+                      random_state=random_state,
+                      max_iter=config.max_iter)
+    )
 
     selected_features = [x for x in list(data) if x not in ['Date','Target']]
 
@@ -559,31 +555,24 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
         X_train = train_data[selected_features]
         y_train = train_data['Target']
 
-        # Fit the scaler on the training data
-        scaler.fit(X_train)
-
-        # Scale training data and fit model
-        X_train_scaled = scaler.transform(X_train)
-
-        model.fit(X_train_scaled, y_train)
+        # Fit the pipeline (scaling + model training)
+        pipeline.fit(X_train, y_train)
 
         # Predict for the next day
         prediction_end = min(i + 1, len(data))
         test_data = data.iloc[i:prediction_end]
         X_test = test_data[selected_features]
 
-        # Scale test data using already fitted scaler
-        X_test_scaled = scaler.transform(X_test)
-
         # store the probabilities for each class in separate columns
-        pred_probs = model.predict_proba(X_test_scaled)
+        pred_probs = pipeline.predict_proba(X_test)
 
         data.loc[data.index[i:prediction_end], "proba_0"] = pred_probs[:, 0]
         data.loc[data.index[i:prediction_end], "proba_1"] = pred_probs[:, 1]
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
-    score = model.score(X_train, y_train)
+    score = pipeline.score(X_train, y_train)
+    model = pipeline.named_steps['mlpClassifier']
 
     return data, model, score
 
