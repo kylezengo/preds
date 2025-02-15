@@ -71,27 +71,28 @@ def strat_gradient_boost(data, initial_train_period, random_state=None):
         GradientBoostingClassifier(random_state=random_state)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    pred_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
         # Predict using the pipeline (scales automatically)
-        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
+        pred_results.append((test_data.index[0], pipeline.predict(X_test)[0]))
+
+    pred_df = pd.DataFrame(pred_results, columns=["index", "Signal"]).set_index("index")
+    data.loc[pred_df.index, "Signal"] = pred_df["Signal"]
 
     score = pipeline.score(X_train, y_train)
     model = pipeline.named_steps['gradientboostingclassifier']
@@ -121,8 +122,7 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
+        test_data = data.iloc[i:i+1]
         X_test = test_data[selected_features]
 
         # store the probabilities for each class in separate columns
@@ -154,27 +154,28 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
         LinearSVC(random_state=random_state)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    pred_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
         # Predict using the pipeline (scales automatically)
-        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
+        pred_results.append((test_data.index[0], pipeline.predict(X_test)[0]))
+
+    pred_df = pd.DataFrame(pred_results, columns=["index", "Signal"]).set_index("index")
+    data.loc[pred_df.index, "Signal"] = pred_df["Signal"]
 
     data['Signal'] = data['Signal'].fillna(1)
 
@@ -203,27 +204,28 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
         LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
@@ -242,35 +244,35 @@ def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None
         LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
-    # ValueError: Found input variables with inconsistent numbers of samples: [2194, 1]
-    # score = model.score(X_test_pca, y_train)
+    score = pipeline.score(X_train, y_train)
     model = pipeline.named_steps['logisticregression']
 
-    return data, model#, score
+    return data, model, score
 
 def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
     """
@@ -284,27 +286,28 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
                       max_iter=config.max_iter)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
 
@@ -315,33 +318,45 @@ def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
 
 def strat_random_forest(data, initial_train_period, random_state=None, njobs=None):
     """
-    Forecast with random forest  
+    Forecast with Random Forest Classifier
+    
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        random_state (int, optional): Random state for reproducibility.
+        njobs (int, optional): Number of parallel jobs for Random Forest.
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained SVC model.
+        score: Model accuracy score.
     """
     pipeline = make_pipeline(
         RandomForestClassifier(random_state=random_state, n_jobs=njobs)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    pred_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
         # Predict using the pipeline (scales automatically)
-        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
+        pred_results.append((test_data.index[0], pipeline.predict(X_test)[0]))
+
+    pred_df = pd.DataFrame(pred_results, columns=["index", "Signal"]).set_index("index")
+    data.loc[pred_df.index, "Signal"] = pred_df["Signal"]
 
     data['Signal'] = data['Signal'].fillna(1)
 
@@ -369,27 +384,28 @@ def strat_svc(data, initial_train_period, random_state=None):
         SVC(random_state=random_state)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    pred_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
         # Predict using the pipeline (scales automatically)
-        data.loc[data.index[i:prediction_end], 'Signal'] = pipeline.predict(X_test)
+        pred_results.append((test_data.index[0], pipeline.predict(X_test)[0]))
+
+    pred_df = pd.DataFrame(pred_results, columns=["index", "Signal"]).set_index("index")
+    data.loc[pred_df.index, "Signal"] = pred_df["Signal"]
 
     data['Signal'] = data['Signal'].fillna(1)
 
@@ -417,27 +433,28 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None):
         SVC(probability=True, random_state=random_state)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > svc_proba, 1, 0)
 
@@ -569,27 +586,28 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
         XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
@@ -607,27 +625,28 @@ def strat_xgboost_scaled(data, initial_train_period, xgboost_proba, random_state
         XGBClassifier(random_state=random_state, n_jobs=n_jobs)
     )
 
-    selected_features = [x for x in list(data) if x not in ['Date','Target']]
-
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
+    proba_results = []
     for i in range(initial_train_period, len(data)):
         # Train only on past data up to the current point
         train_data = data.iloc[:i]
-        X_train = train_data[selected_features]
+        X_train = train_data.drop(columns=['Date', 'Target'])
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
         pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        prediction_end = min(i + 1, len(data))
-        test_data = data.iloc[i:prediction_end]
-        X_test = test_data[selected_features]
+        test_data = data.iloc[i:i+1]
+        X_test = test_data.drop(columns=['Date', 'Target'])
 
-        # store the probabilities for each class in separate columns
-        data.loc[test_data.index, ["proba_0", "proba_1"]] = pipeline.predict_proba(X_test)
+        # Store predictions with indices
+        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > xgboost_proba, 1, 0)
 
@@ -708,8 +727,8 @@ def backtest_strategy(data, initial_capital, strategy, target, ticker,
     elif strategy == "Logit_PCA":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model = strat_logit_pca(data, initial_train_period, config=config.logit,
-                                      n_jobs=n_jobs)
+        data, model, score = strat_logit_pca(data, initial_train_period, config=config.logit,
+                                             n_jobs=n_jobs)
 
     elif strategy == "RandomForest":
         initial_train_period = kwargs.get('initial_train_period')
