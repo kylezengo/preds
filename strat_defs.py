@@ -10,6 +10,7 @@ from prophet import Prophet
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import make_pipeline
@@ -59,6 +60,50 @@ class BacktestConfig:
     logit: LogitConfig = field(default_factory=LogitConfig)
     mlp: MLPConfig = field(default_factory=MLPConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
+
+# helper functions
+def proba_loop(data, initial_train_period, feats, best_pipeline, proba):
+    """
+    Loop through the data and predict probabilities
+
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        feats (list): List of features to use.
+        best_pipeline: Trained pipeline.
+        proba (float): Probability threshold for Signal = 1.
+    
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained model.
+        score: Model accuracy score.
+    """
+    proba_results = []
+    for i in range(initial_train_period, len(data)):
+        # Train only on past data up to the current point
+        train_data = data.iloc[:i]
+        X_train = train_data[feats]
+        y_train = train_data['Target']
+
+        # Fit the pipeline (scaling + model training)
+        best_pipeline.fit(X_train, y_train)
+
+        # Predict for the next day
+        test_data = data.loc[[i]]
+        X_test = test_data[feats]
+
+        # Store predictions with indices
+        proba_results.append((i, best_pipeline.predict_proba(X_test)[0]))
+
+    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
+    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
+
+    data['Signal'] = np.where(data['proba_1'].fillna(1) > proba, 1, 0)
+
+    score = best_pipeline.score(X_train, y_train)
+    model = best_pipeline.steps[-1][1]
+
+    return data, model, score
 
 
 # sklearn models
@@ -137,7 +182,7 @@ def strat_knn(data, initial_train_period, knn_proba, njobs=None):
 
 def strat_linear_svc(data, initial_train_period, random_state=None):
     """
-    Forecast with SVC
+    Predict with Linear SVC
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -151,11 +196,33 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
     """
     pipeline = make_pipeline(
         StandardScaler(),
+        PCA(svd_solver='full'),
         LinearSVC(random_state=random_state)
     )
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
+
+    # Grid search for best parameters
+    train_data = data.iloc[:initial_train_period]
+    X_train = train_data.drop(columns=['Date', 'Target'])
+    y_train = train_data['Target']
+
+    param_grid = {
+        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+        "linearsvc__C": np.logspace(-4, 4, 9),
+    }
+
+    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=None)
+    search.fit(X_train, y_train)
+    print(search.best_params_)
+    # Create a new pipeline with the best parameters
+    best_params = search.best_params_
+    best_pipeline = make_pipeline(
+        StandardScaler(),
+        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
+        LinearSVC(C=best_params["linearsvc__C"],random_state=random_state)
+    )
 
     pred_results = []
     for i in range(initial_train_period, len(data)):
@@ -165,28 +232,28 @@ def strat_linear_svc(data, initial_train_period, random_state=None):
         y_train = train_data['Target']
 
         # Fit the pipeline (scaling + model training)
-        pipeline.fit(X_train, y_train)
+        best_pipeline.fit(X_train, y_train)
 
         # Predict for the next day
-        test_data = data.iloc[i:i+1]
+        test_data = data.loc[[i]]
         X_test = test_data.drop(columns=['Date', 'Target'])
 
         # Predict using the pipeline (scales automatically)
-        pred_results.append((test_data.index[0], pipeline.predict(X_test)[0]))
+        pred_results.append((i, best_pipeline.predict(X_test)[0]))
 
     pred_df = pd.DataFrame(pred_results, columns=["index", "Signal"]).set_index("index")
     data.loc[pred_df.index, "Signal"] = pred_df["Signal"]
 
     data['Signal'] = data['Signal'].fillna(1)
 
-    score = pipeline.score(X_train, y_train)
-    model = pipeline.named_steps['linearsvc']
+    score = best_pipeline.score(X_train, y_train)
+    model = best_pipeline.named_steps['linearsvc']
 
     return data, model, score
 
 def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
-    Forecast with logistic regression
+    Predict probabilities with logistic regression
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -236,43 +303,57 @@ def strat_logit(data, initial_train_period, config: LogitConfig, n_jobs=None):
 
 def strat_logit_pca(data, initial_train_period, config: LogitConfig, n_jobs=None):
     """
-    Forecast with logistic regression  
+    Predict probabilities with logistic regression and PCA
+    
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        config: LogitConfig
+        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
+
+    Returns:
+        DataFrame: Data with strategy signals.
+        model: Trained logistic regression model.
+        score: Model accuracy score.
     """
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=config.pca_n_components),
-        LogisticRegression(C=config.c, max_iter=config.max_iter, n_jobs=n_jobs)
-    )
+    feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
     # Drop rows with missing values due to rolling calculations
     data = data.dropna().copy()
 
-    proba_results = []
-    for i in range(initial_train_period, len(data)):
-        # Train only on past data up to the current point
-        train_data = data.iloc[:i]
-        X_train = train_data.drop(columns=['Date', 'Target'])
-        y_train = train_data['Target']
+    train_data = data.iloc[:initial_train_period]
+    X_train = train_data[feats]
+    y_train = train_data['Target']
 
-        # Fit the pipeline (scaling + model training)
-        pipeline.fit(X_train, y_train)
+    # Grid search for best parameters
+    pipeline = make_pipeline(
+        StandardScaler(),
+        PCA(svd_solver='full'),
+        LogisticRegression(n_jobs=n_jobs)
+    )
 
-        # Predict for the next day
-        test_data = data.iloc[i:i+1]
-        X_test = test_data.drop(columns=['Date', 'Target'])
+    param_grid = {
+        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+        "logisticregression__C": np.logspace(-4, 4, 9),
+        "logisticregression__solver": ["lbfgs","liblinear","saga"],
+        "logisticregression__max_iter": [100,500,1000]
+    }
 
-        # Store predictions with indices
-        proba_results.append((test_data.index[0], pipeline.predict_proba(X_test)[0]))
+    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
+    search.fit(X_train, y_train)
+    print(search.best_params_)
 
-    proba_df = pd.DataFrame(proba_results, columns=["index", "proba"]).set_index("index")
-    data[["proba_0", "proba_1"]] = pd.DataFrame(proba_df["proba"].to_list(), index=proba_df.index)
+    best_params = search.best_params_
+    best_pipeline = make_pipeline(
+        StandardScaler(),
+        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
+        LogisticRegression(C=best_params["logisticregression__C"],
+                           solver=best_params["logisticregression__solver"],
+                           max_iter=best_params["logisticregression__max_iter"],
+                           n_jobs=n_jobs)
+    )
 
-    data['Signal'] = np.where(data['proba_1'].fillna(1) > config.proba, 1, 0)
-
-    score = pipeline.score(X_train, y_train)
-    model = pipeline.named_steps['logisticregression']
-
-    return data, model, score
+    return proba_loop(data, initial_train_period, feats, best_pipeline, config.proba)
 
 def strat_mlp(data, initial_train_period, config: MLPConfig, random_state=None):
     """
