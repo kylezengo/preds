@@ -158,14 +158,7 @@ def strat_gradient_boost(data, initial_train_period, random_state=None, n_jobs=N
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        GradientBoostingClassifier(random_state=random_state)
-    )
-
-    return pred_loop(data, initial_train_period, feats, best_pipeline)
+    return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
 def strat_knn(data, initial_train_period, knn_proba, n_jobs=None):
     """
@@ -205,14 +198,7 @@ def strat_knn(data, initial_train_period, knn_proba, n_jobs=None):
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver="full", n_components=best_params["pca__n_components"]),
-        KNeighborsClassifier(n_jobs=n_jobs)
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, knn_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, knn_proba)
 
 def strat_linear_svc(data, initial_train_period, random_state=None, n_jobs=None):
     """
@@ -256,14 +242,7 @@ def strat_linear_svc(data, initial_train_period, random_state=None, n_jobs=None)
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        LinearSVC(C=best_params["linearsvc__C"],random_state=random_state)
-    )
-
-    return pred_loop(data, initial_train_period, feats, best_pipeline)
+    return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
 def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
     """
@@ -272,7 +251,7 @@ def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
     Parameters:
         data (DataFrame): Stock data with required columns.
         initial_train_period (int): Initial training period.
-        config: LogitConfig
+        logit_proba (float): Probability threshold for Signal = 1.
         n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
 
     Returns:
@@ -296,27 +275,17 @@ def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
     )
 
     param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+        "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
         "logisticregression__C": np.logspace(-4, 4, 9),
-        "logisticregression__solver": ["lbfgs","liblinear","saga"],
-        "logisticregression__max_iter": [100,500,1000]
+        "logisticregression__solver": ["lbfgs", "liblinear", "saga"],
+        "logisticregression__max_iter": [100, 500, 1000]
     }
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        LogisticRegression(C=best_params["logisticregression__C"],
-                           solver=best_params["logisticregression__solver"],
-                           max_iter=best_params["logisticregression__max_iter"],
-                           n_jobs=n_jobs)
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, logit_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, logit_proba)
 
 def strat_mlp(data, initial_train_period, mlp_proba, random_state=None, n_jobs=None):
     """
@@ -360,18 +329,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, random_state=None, n_jobs=N
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        MLPClassifier(solver='lbfgs',
-                      random_state=random_state,
-                      alpha=best_params["mlpclassifier__alpha"],
-                      hidden_layer_sizes=best_params["mlpclassifier__hidden_layer_sizes"],
-                      max_iter=best_params["mlpclassifier__max_iter"])
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, mlp_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, mlp_proba)
 
 def strat_random_forest(data, initial_train_period, rf_proba, random_state=None, n_jobs=None):
     """
@@ -417,14 +375,7 @@ def strat_random_forest(data, initial_train_period, rf_proba, random_state=None,
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        RandomForestClassifier(random_state=random_state, n_jobs=n_jobs)
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, rf_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, rf_proba)
 
 def strat_svc(data, initial_train_period, random_state=None, n_jobs=None):
     """
@@ -473,19 +424,11 @@ def strat_svc(data, initial_train_period, random_state=None, n_jobs=None):
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        SVC(random_state=random_state,
-            C=best_params["svc__C"])
-    )
-
-    return pred_loop(data, initial_train_period, feats, best_pipeline)
+    return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
 def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None, n_jobs=None):
     """
-    Forecast with SVC
+    Predict probabilities with SVC
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -543,7 +486,7 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None, n_
 # Other models
 def strat_keras(data, initial_train_period, config: KerasConfig, random_state=None):
     """
-    Calculate forecast with Keras
+    Predict with Keras
     """
     scaler = StandardScaler()
 
@@ -615,7 +558,7 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
 
 def strat_prophet(data, initial_train_period, target, ticker):
     """
-    Forecast with Facebook Prophet  
+    Predict with Facebook Prophet  
     """
     model = Prophet(daily_seasonality=True, yearly_seasonality=True)
 
@@ -645,7 +588,7 @@ def strat_prophet(data, initial_train_period, target, ticker):
 
 def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, n_jobs=None):
     """
-    Forecast with XGBoost
+    Predict probabilities with XGBoost
     
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -682,14 +625,7 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
     search.fit(X_train, y_train)
     print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, xgboost_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, xgboost_proba)
 
 
 # Backtest
