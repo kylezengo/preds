@@ -28,6 +28,14 @@ class BollingerConfig:
     num_std: float = 2.0
 
 @dataclass
+class MACDConfig:
+    """
+    Moving average configuration class
+    """
+    short_window: int = 20
+    long_window: int = 50
+
+@dataclass
 class IndicatorConfig:
     """
     Configuration class for technical indicators used in forecasting strategies.
@@ -37,6 +45,7 @@ class IndicatorConfig:
     rsi_window: int = 30
     moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
     bollinger: BollingerConfig = field(default_factory=BollingerConfig)
+    macdconfig: MACDConfig = field(default_factory=MACDConfig)
 
 
  # Technical indicators
@@ -118,9 +127,26 @@ def calculate_vwap_long(data, target):
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
+def calculate_macd(data, short_period=12, long_period=26):
+    """
+    Calculate the MACD line.
+    
+    Parameters:
+        data (DataFrame): Must contain a 'Close' price column.
+        short_period (int): Short-term EMA period (default=12).
+        long_period (int): Long-term EMA period (default=26).
+    
+    Returns:
+        Series: The MACD line.
+    """
+    short_ema = data['Close'].ewm(span=short_period, adjust=False).mean()
+    long_ema = data['Close'].ewm(span=long_period, adjust=False).mean()
+    macd_line = short_ema - long_ema
+    return macd_line
+
 def calculate_technical_indicators(data, config: IndicatorConfig):
     """
-    Calculate technical indicators for the dataset.
+    Calculate technical indicators for the dataset (uses wide functions).
 
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -141,6 +167,10 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
                                config.bollinger.num_std *
                                data[target_ticker].rolling(window=config.bollinger.window).std())
     data['VWAP'] = calculate_vwap_wide(data, config.target, config.ticker)
+
+    data['short_ema'] = data[target_ticker].ewm(span=config.macdconfig.short_window, adjust=False).mean()
+    data['long_ema'] = data[target_ticker].ewm(span=config.macdconfig.long_window, adjust=False).mean()
+    data['macd_line'] = data['short_ema'] - data['long_ema']
 
     return data
 
