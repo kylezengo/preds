@@ -172,7 +172,7 @@ def strat_knn(data, initial_train_period, knn_proba, n_jobs=None):
 
     Returns:
         DataFrame: Data with strategy signals.
-        model: Trained logistic regression model.
+        model: Trained K nearest neighbors model.
         score: Model accuracy score.
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
@@ -437,7 +437,7 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None, n_
     
     Returns:
         DataFrame: Data with strategy signals.
-        model: Trained SVC model.
+        model: Trained SVC probability model.
         score: Model accuracy score.
     """
     pipeline = make_pipeline(
