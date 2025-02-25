@@ -156,7 +156,7 @@ def strat_gradient_boost(data, initial_train_period, random_state=None, n_jobs=N
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
@@ -196,7 +196,7 @@ def strat_knn(data, initial_train_period, knn_proba, n_jobs=None):
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, knn_proba)
 
@@ -240,7 +240,7 @@ def strat_linear_svc(data, initial_train_period, random_state=None, n_jobs=None)
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
@@ -283,7 +283,7 @@ def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, logit_proba)
 
@@ -327,7 +327,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, random_state=None, n_jobs=N
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, mlp_proba)
 
@@ -373,7 +373,7 @@ def strat_random_forest(data, initial_train_period, rf_proba, random_state=None,
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, rf_proba)
 
@@ -422,7 +422,7 @@ def strat_svc(data, initial_train_period, random_state=None, n_jobs=None):
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
@@ -469,19 +469,9 @@ def strat_svc_proba(data, initial_train_period, svc_proba, random_state=None, n_
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
-    best_params = search.best_params_
-    best_pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(n_components=best_params["pca__n_components"], svd_solver="full"),
-        SVC(probability=True,
-            random_state=random_state,
-            C=best_params["svc__C"],
-            max_iter=best_params["svc__max_iter"])
-    )
-
-    return proba_loop(data, initial_train_period, feats, best_pipeline, svc_proba)
+    return proba_loop(data, initial_train_period, feats, search.best_estimator_, svc_proba)
 
 # Other models
 def strat_keras(data, initial_train_period, config: KerasConfig, random_state=None):
@@ -623,20 +613,18 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
-    print(search.best_params_)
+    # print(search.best_params_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, xgboost_proba)
 
 
 # Backtest
-def backtest_strategy(data, initial_capital, strategy, target, ticker,
-                      config: BacktestConfig, random_state=None, **kwargs):
+def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
-        initial_capital (float): initial investment / starting capital
         strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.)
         config: config info
         random_state (int): 
@@ -759,6 +747,10 @@ def backtest_strategy(data, initial_capital, strategy, target, ticker,
         data = pd.concat([data_train_period,data])
 
     data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
-    data['Portfolio_Value'] = (1 + data['Strategy_Return']).cumprod() * initial_capital
+
+    if ticker != "SPY":
+        initial_train_period = kwargs.get('initial_train_period')
+        data.loc[:initial_train_period, 'Strategy_Return'] = data['Daily_Return_SPY']
+        data.loc[0, 'Strategy_Return'] = np.nan
 
     return data, model, score

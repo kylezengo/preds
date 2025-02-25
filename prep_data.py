@@ -30,22 +30,22 @@ class BollingerConfig:
 @dataclass
 class MACDConfig:
     """
-    Moving average configuration class
+    MACD configuration class
     """
-    short_window: int = 20
-    long_window: int = 50
+    short_window: int = 12
+    long_window: int = 26
 
 @dataclass
 class IndicatorConfig:
     """
     Configuration class for technical indicators used in forecasting strategies.
     """
-    target: str
-    ticker: str
+    target: str = 'Adj Close'
+    ticker: str = 'SPY'
     rsi_window: int = 30
     moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
     bollinger: BollingerConfig = field(default_factory=BollingerConfig)
-    macdconfig: MACDConfig = field(default_factory=MACDConfig)
+    macd: MACDConfig = field(default_factory=MACDConfig)
 
 
  # Technical indicators
@@ -168,8 +168,8 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
                                data[target_ticker].rolling(window=config.bollinger.window).std())
     data['VWAP'] = calculate_vwap_wide(data, config.target, config.ticker)
 
-    data['short_ema'] = data[target_ticker].ewm(span=config.macdconfig.short_window, adjust=False).mean()
-    data['long_ema'] = data[target_ticker].ewm(span=config.macdconfig.long_window, adjust=False).mean()
+    data['short_ema'] = data[target_ticker].ewm(span=config.macd.short_window, adjust=False).mean()
+    data['long_ema'] = data[target_ticker].ewm(span=config.macd.long_window, adjust=False).mean()
     data['macd_line'] = data['short_ema'] - data['long_ema']
 
     return data
@@ -234,7 +234,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
         'PNR','PNW','PODD','POOL','PPG','PPL','PRU','PSA','PSX','PTC','PWR','PYPL','QCOM','RCL',
         'REG','REGN','RF','RJF','RL','RMD','ROK','ROL','ROP','ROST','RSG','RTX','RVTY','SBAC',
         'SBUX','SCHW','SHW','SJM','SLB','SMCI','SNA','SNPS','SO','SOLV','SPG','SPGI',
-        'SPY',
+        # 'SPY',
         'SRE','STE','STLD','STT','STX','STZ','SW','SWK','SWKS','SYF','SYK','SYY','T','TAP','TDG',
         'TDY','TECH','TEL','TER','TFC','TFX','TGT','TJX','TMO','TMUS','TPL','TPR','TRGP','TRMB',
         'TROW','TRV','TSCO','TSLA','TSN','TT','TTWO','TXN','TXT','TYL','UAL','UBER','UDR','UHS',
@@ -346,6 +346,9 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     prepd_data = calculate_technical_indicators(prepd_data, config)
 
     prepd_data['Daily_Return'] = prepd_data[target_ticker].pct_change()
+
+    if target_ticker != 'Adj Close_SPY':
+        prepd_data['Daily_Return_SPY'] = prepd_data['Adj Close_SPY'].pct_change()
 
     # Day of week
     prepd_data['day_of_week_name'] = prepd_data['Date'].dt.day_name()
