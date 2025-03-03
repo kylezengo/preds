@@ -47,6 +47,7 @@ class BacktestConfig:
     Backtest configuration class
     """
     overbought: int = 70
+    logit_warm_start: bool = False
     proba: ProbaConfig = field(default_factory=ProbaConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
 
@@ -103,7 +104,7 @@ def proba_loop(data, initial_train_period, feats, best_pipeline, proba):
         feats (list): List of features to use.
         best_pipeline: Trained pipeline.
         proba (float): Probability threshold for Signal = 1.
-    
+
     Returns:
         DataFrame: Data with strategy signals.
         model: Trained model.
@@ -252,7 +253,7 @@ def strat_linear_svc(data, initial_train_period, random_state=None, n_jobs=None)
 
     return pred_loop(data, initial_train_period, feats, search.best_estimator_)
 
-def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
+def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, n_jobs=None):
     """
     Predict probabilities with logistic regression
     
@@ -279,8 +280,9 @@ def strat_logit(data, initial_train_period, logit_proba, n_jobs=None):
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        LogisticRegression(n_jobs=n_jobs)
+        LogisticRegression(warm_start=logit_warm_start,n_jobs=n_jobs)
     )
+
 
     param_grid = {
         "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
@@ -702,7 +704,7 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, ra
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strat_logit(data, initial_train_period, config.proba.logit,
-                                         n_jobs=n_jobs)
+                                         config.logit_warm_start, n_jobs=n_jobs)
 
     elif strategy == "RandomForest":
         initial_train_period = kwargs.get('initial_train_period')
