@@ -196,10 +196,6 @@ def gen_stocks_w(ticker, drop_tickers=None):
     wiki_pageviews_latest = max(wiki_pageviews_files, key=os.path.getctime)
     wiki_pageviews_raw = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
 
-    gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
-    gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
-    gt_adjusted_raw = pd.read_csv(gt_adjusted_latest, parse_dates=['Date'])
-
     #
     stocks_df = stocks_df_raw.copy()
 
@@ -296,6 +292,10 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     weather_latest = max(weather_files, key=os.path.getctime)
     weather_raw = pd.read_csv(weather_latest, parse_dates=['date'])
 
+    gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
+    gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
+    gt_adjusted_raw = pd.read_csv(gt_adjusted_latest, parse_dates=['Date'])
+
     prepd_data = gen_stocks_w(config.ticker, drop_tickers)
 
     # Sunlight
@@ -310,9 +310,14 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     # Federal funds rate
     prepd_data = prepd_data.merge(ffr_raw,on='Date',how='left')
 
-    # NYC weather (high and low temperature and precipitation
+    # NYC weather (high and low temperature and precipitation)
     weather = weather_raw.rename(columns={'date': 'Date'})
     prepd_data = prepd_data.merge(weather,on='Date',how='left')
+
+    # Google Trends
+    gt_adjusted_pivot = gt_adjusted_raw.pivot(index='date', columns='search_term',values=['index'])
+    gt_adjusted_pivot = gt_adjusted_pivot.rename(columns={'date': 'Date'})
+    prepd_data = prepd_data.merge(gt_adjusted_pivot,on='Date',how='left')
 
     #
     target_ticker = config.target+"_"+config.ticker

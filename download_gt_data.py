@@ -52,12 +52,17 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     """
     index_of_month = gt_monthly_raw.copy()
     index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
-    index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_end_date'])]
+    index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
     index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
     index_of_month['month_end'] = index_of_month['month_start'] + MonthEnd(0)
     index_of_month = index_of_month[['month_start','index_of_month','search_term']]
+    index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
 
-    index_of_week = gt_weekly_raw[['start_date','index','search_term']]
+    # there are duplicate start_date/search_term rows because weeks can be spread across different years
+    # smart way to adjust this would be weighted average based on days of week in each year
+    # just keeping the first row for now, come back to this later
+    index_of_week = gt_weekly_raw.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
+    index_of_week = index_of_week[['start_date','index','search_term']]
     index_of_week = index_of_week.rename(columns={'start_date':'week_start_sun','index':'index_of_week'})
 
     index_of_day = gt_daily_raw.copy()
