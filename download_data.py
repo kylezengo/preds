@@ -47,6 +47,8 @@ sp_df.loc[sp_df['wiki_page']=='PTC+Inc.','wiki_page'] = "PTC_(software_company)"
 sp_df.loc[sp_df['wiki_page']=='J.M.+Smucker+Company+%28The%29','wiki_page'] = "The_J.M._Smucker_Company"
 sp_df.loc[sp_df['wiki_page']=='Travelers+Companies+%28The%29','wiki_page'] = "The_Travelers_Companies"
 sp_df.loc[sp_df['wiki_page']=='Walt+Disney+Company+%28The%29','wiki_page'] = "The_Walt_Disney_Company"
+sp_df.loc[sp_df['wiki_page']=="O%E2%80%99Reilly+Automotive",'wiki_page'] = "O'Reilly_Auto_Parts"
+sp_df.loc[sp_df['wiki_page']=="Campbell%27s+Company+%28The%29",'wiki_page'] = "Campbell%27s"
 
 sp_df_spy = pd.DataFrame([{'Symbol': "SPY",
                            'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
@@ -80,7 +82,11 @@ for page in set(sp_df['wiki_page']):
         json_data = response.json()
         if 'items' in json_data:
             df = pd.DataFrame(json_data['items'])
-            df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
+
+            if len(sp_df.loc[sp_df['wiki_page']==page,'Symbol']) > 1:
+                df['ticker'] = ','.join(list(sp_df.loc[sp_df['wiki_page']==page,'Symbol']))
+            else:
+                df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
         else:
             print(f"'items' key missing in response for page: {page}")
             missing.append(page)
@@ -120,11 +126,11 @@ for i in selected_tickers:
     data.columns = data.columns.get_level_values(0)
     data['ticker'] = i
     dat_list.append(data)
+    time.sleep(1)
 
 stocks_df = pd.concat(dat_list)
 stocks_df = stocks_df.reset_index()
 stocks_df = stocks_df.rename_axis(None, axis=1)
-
 
 # Get outstanding shares data
 dat_list = []

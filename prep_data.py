@@ -294,7 +294,7 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
 
     gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
     gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
-    gt_adjusted_raw = pd.read_csv(gt_adjusted_latest, parse_dates=['Date'])
+    gt_adjusted_raw = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
 
     prepd_data = gen_stocks_w(config.ticker, drop_tickers)
 
@@ -316,7 +316,11 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
 
     # Google Trends
     gt_adjusted_pivot = gt_adjusted_raw.pivot(index='date', columns='search_term',values=['index'])
+
+    gt_adjusted_pivot.columns = ['_'.join(col).strip() for col in gt_adjusted_pivot.columns.values]
+    gt_adjusted_pivot = gt_adjusted_pivot.reset_index().rename_axis(None, axis=1)
     gt_adjusted_pivot = gt_adjusted_pivot.rename(columns={'date': 'Date'})
+
     prepd_data = prepd_data.merge(gt_adjusted_pivot,on='Date',how='left')
 
     #
