@@ -1,0 +1,3 @@
+{'hl': 'en-US', 'tz': 360, 'req': '{"comparisonItem": [{"keyword": "AAPL", "time": "2003-12-28 2004-01-03", "geo": "US"}], "category": 0, "property": ""}'}
+{'hl': 'en-US', 'tz': 360, 'req': '{"comparisonItem": [{"keyword": "AAPL", "time": "2004-01-04 2004-01-10", "geo": "US"}], "category": 0, "property": ""}'}
+{'hl': 'en-US', 'tz': 360, 'req': '{"comparisonItem": [{"keyword": "AAPL", "time": "2004-01-11 2004-01-17", "geo": "US"}], "category": 0, "property": ""}'}
