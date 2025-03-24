@@ -690,15 +690,14 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, ra
     elif strategy == 'Breakout':
         bko_window = kwargs.get('bko_window')
 
-        data['High_Max'] = data['High_'+config.indicator.ticker].rolling(window=bko_window).max().shift(1)
-        data['Low_Min'] = data['Low_'+config.indicator.ticker].rolling(window=bko_window).min().shift(1)
+        data['High_Max'] = data['High_'+ticker].rolling(window=bko_window).max().shift(1)
+        data['Low_Min'] = data['Low_'+ticker].rolling(window=bko_window).min().shift(1)
         data['Signal'] = 1
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
 
     elif strategy == "Prophet":
         initial_train_period = kwargs.get('initial_train_period')
-        data, model = strat_prophet(data, initial_train_period, config.indicator.ticker,
-                                    config.indicator.target)
+        data, model = strat_prophet(data, initial_train_period, target, ticker)
 
     elif strategy == "Logit":
         initial_train_period = kwargs.get('initial_train_period')

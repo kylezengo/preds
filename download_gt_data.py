@@ -58,8 +58,8 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     index_of_month = index_of_month[['month_start','index_of_month','search_term']]
     index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
 
-    # there are duplicate start_date/search_term rows because weeks can be spread across different years
-    # smart way to adjust this would be weighted average based on days of week in each year
+    # there are duplicate start_date/search_term rows because weeks can be spread across different
+    # years smart way to adjust this would be weighted average based on days of week in each year
     # just keeping the first row for now, come back to this later
     index_of_week = gt_weekly_raw.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
     index_of_week = index_of_week[['start_date','index','search_term']]

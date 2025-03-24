@@ -17,100 +17,135 @@ fred_api_key = os.getenv("fred_api_key")
 noaa_api_key = os.getenv("noaa_api_key")
 wiki_user_agent = os.getenv("wiki_user_agent")
 
+WIKI_SDATE = "20150701" # earliest date is"20150701"
+WIKI_BASE_URL = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/"
 START_DATE = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
 end_date = datetime.today().strftime('%Y-%m-%d')
 
-# Get list of S&P 500 tickers from Wikipedia page
-sp_wiki = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", timeout=20)
+def get_federal_funds_rate():
+    """
+    Get federal funds rate using the Fred API (not exact match to current numbers?)
+    """
+    fred = Fred(api_key=fred_api_key)
+    build_ffr = fred.get_series('FEDFUNDS').to_frame(name='federal_funds_rate')
+    build_ffr.loc[datetime.today().strftime('%Y-%m-%d'), 'federal_funds_rate'] = build_ffr['federal_funds_rate'][-1]
+    build_ffr = build_ffr.resample('D').ffill()
+    build_ffr = build_ffr.reset_index(names='Date')
+    return build_ffr
 
-sp_df = pd.read_html(sp_wiki.content)[0]
+def get_sp500_tickers():
+    """
+    Get list of S&P 500 tickers from Wikipedia page
+    """
+    sp_wiki = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", timeout=20)
 
-# Get the wikipedia page for each company (part of url)
-sp_df['wiki_page'] = sp_df['Security'].apply(urllib.parse.quote_plus)
+    build_sp_df = pd.read_html(sp_wiki.content)[0]
 
-sp_df.loc[sp_df['wiki_page']=="Alphabet+Inc.+%28Class+A%29",'wiki_page'] = "Alphabet_Inc."
-sp_df.loc[sp_df['wiki_page']=="Alphabet+Inc.+%28Class+C%29",'wiki_page'] = "Alphabet_Inc."
-sp_df.loc[sp_df['wiki_page']=='Coca-Cola+Company+%28The%29','wiki_page'] = "The_Coca-Cola_Company"
-sp_df.loc[sp_df['wiki_page']=='Cooper+Companies+%28The%29','wiki_page'] = "The_Cooper_Companies"
-sp_df.loc[sp_df['wiki_page']=='Est%C3%A9e+Lauder+Companies+%28The%29','wiki_page'] = "The_Estée_Lauder_Companies"
-sp_df.loc[sp_df['wiki_page']=='Fox+Corporation+%28Class+A%29','wiki_page'] = "Fox_Corporation"
-sp_df.loc[sp_df['wiki_page']=='Fox+Corporation+%28Class+B%29','wiki_page'] = "Fox_Corporation"
-sp_df.loc[sp_df['wiki_page']=='Hartford+%28The%29','wiki_page'] = "The_Hartford"
-sp_df.loc[sp_df['wiki_page']=='Hershey+Company+%28The%29','wiki_page'] = "The_Hershey_Company"
-sp_df.loc[sp_df['wiki_page']=='Home+Depot+%28The%29','wiki_page'] = "Home_Depot"
-sp_df.loc[sp_df['wiki_page']=='Interpublic+Group+of+Companies+%28The%29','wiki_page'] = "The_Interpublic_Group_of_Companies"
-sp_df.loc[sp_df['wiki_page']=='Lilly+%28Eli%29','wiki_page'] = "Eli_Lilly_and_Company"
-sp_df.loc[sp_df['wiki_page']=='Mosaic+Company+%28The%29','wiki_page'] = "The_Mosaic_Company"
-sp_df.loc[sp_df['wiki_page']=='News+Corp+%28Class+A%29','wiki_page'] = "News_Corp"
-sp_df.loc[sp_df['wiki_page']=='News+Corp+%28Class+B%29','wiki_page'] = "News_Corp"
-sp_df.loc[sp_df['wiki_page']=='PTC+Inc.','wiki_page'] = "PTC_(software_company)"
-sp_df.loc[sp_df['wiki_page']=='J.M.+Smucker+Company+%28The%29','wiki_page'] = "The_J.M._Smucker_Company"
-sp_df.loc[sp_df['wiki_page']=='Travelers+Companies+%28The%29','wiki_page'] = "The_Travelers_Companies"
-sp_df.loc[sp_df['wiki_page']=='Walt+Disney+Company+%28The%29','wiki_page'] = "The_Walt_Disney_Company"
-sp_df.loc[sp_df['wiki_page']=="O%E2%80%99Reilly+Automotive",'wiki_page'] = "O'Reilly_Auto_Parts"
-sp_df.loc[sp_df['wiki_page']=="Campbell%27s+Company+%28The%29",'wiki_page'] = "Campbell%27s"
+    # Get the wikipedia page for each company (part of url)
+    build_sp_df['wiki_page'] = build_sp_df['Security'].apply(urllib.parse.quote_plus)
 
-sp_df_spy = pd.DataFrame([{'Symbol': "SPY",
-                           'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
-                           'GICS Sector': None,
-                           'GICS Sub-Industry': None,
-                           'Headquarters Location': None,
-                           'Date added': "1993-01-22",
-                           'CIK': None,
-                           'Founded': "1993-01-22",
-                           'wiki_page': "S%26P_500"}])
+    replacements = {
+        "Alphabet+Inc.+%28Class+A%29": "Alphabet_Inc.",
+        "Alphabet+Inc.+%28Class+C%29": "Alphabet_Inc.",
+        'Coca-Cola+Company+%28The%29': "The_Coca-Cola_Company",
+        'Cooper+Companies+%28The%29': "The_Cooper_Companies",
+        'Est%C3%A9e+Lauder+Companies+%28The%29': "The_Estée_Lauder_Companies",
+        'Fox+Corporation+%28Class+A%29': "Fox_Corporation",
+        'Fox+Corporation+%28Class+B%29': "Fox_Corporation",
+        'Hartford+%28The%29': "The_Hartford",
+        'Hershey+Company+%28The%29': "The_Hershey_Company",
+        'Home+Depot+%28The%29': "Home_Depot",
+        'Interpublic+Group+of+Companies+%28The%29': "The_Interpublic_Group_of_Companies",
+        'Lilly+%28Eli%29': "Eli_Lilly_and_Company",
+        'Mosaic+Company+%28The%29': "The_Mosaic_Company",
+        'News+Corp+%28Class+A%29': "News_Corp",
+        'News+Corp+%28Class+B%29': "News_Corp",
+        'PTC+Inc.': "PTC_(software_company)",
+        'J.M.+Smucker+Company+%28The%29': "The_J.M._Smucker_Company",
+        'Travelers+Companies+%28The%29': "The_Travelers_Companies",
+        'Walt+Disney+Company+%28The%29': "The_Walt_Disney_Company",
+        "O%E2%80%99Reilly+Automotive": "O'Reilly_Auto_Parts",
+        "Campbell%27s+Company+%28The%29": "Campbell%27s"
+    }
 
-sp_df = pd.concat([sp_df,sp_df_spy],ignore_index=True)
+    for key, replacement_value in replacements.items():
+        build_sp_df.loc[build_sp_df['wiki_page'] == key, 'wiki_page'] = replacement_value
 
-# Get daily wikipedia pageviews for each company
-WIKI_SDATE="20150701" # earliest date is"20150701"
-wiki_edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
+    build_sp_df_spy = pd.DataFrame([{'Symbol': "SPY",
+                            'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
+                            'GICS Sector': None,
+                            'GICS Sub-Industry': None,
+                            'Headquarters Location': None,
+                            'Date added': "1993-01-22",
+                            'CIK': None,
+                            'Founded': "1993-01-22",
+                            'wiki_page': "S%26P_500"}])
 
-headers = {
-    "User-Agent": wiki_user_agent
-}
+    build_sp_df = pd.concat([build_sp_df,build_sp_df_spy],ignore_index=True)
+    return build_sp_df
 
-dat=[]
-missing=[]
-for page in set(sp_df['wiki_page']):
-    url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/{page}/daily/{WIKI_SDATE}/{wiki_edate}"
+def save_data_to_csv(dic_of_dfs):
+    """Save data to CSV files"""
+    today_str = datetime.today().strftime("%Y%m%d")
+    for df_name, final_df in dic_of_dfs.items():
+        final_df.to_csv(f"{df_name}_{today_str}.csv", index=False)
 
-    try:
-        response = requests.get(url, headers=headers, timeout=20)
-        response.raise_for_status()
+def get_wikipedia_pageviews(sp_df):
+    """
+    Get daily wikipedia pageviews for each company
+    """
+    wiki_edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
 
-        json_data = response.json()
-        if 'items' in json_data:
-            df = pd.DataFrame(json_data['items'])
+    wiki_headers = {
+        "User-Agent": wiki_user_agent
+    }
 
-            if len(sp_df.loc[sp_df['wiki_page']==page,'Symbol']) > 1:
-                df['ticker'] = ','.join(list(sp_df.loc[sp_df['wiki_page']==page,'Symbol']))
+    dat=[]
+    missing=[]
+    for page in set(sp_df['wiki_page']):
+        url = f"{WIKI_BASE_URL}{page}/daily/{WIKI_SDATE}/{wiki_edate}"
+
+        try:
+            page_response = requests.get(url, headers=wiki_headers, timeout=20)
+            page_response.raise_for_status()
+
+            json_data = page_response.json()
+            if 'items' in json_data:
+                items_df = pd.DataFrame(json_data['items'])
+
+                if len(sp_df.loc[sp_df['wiki_page']==page,'Symbol']) > 1:
+                    items_df['ticker'] = ','.join(list(sp_df.loc[sp_df['wiki_page']==page,'Symbol']))
+                else:
+                    items_df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
             else:
-                df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
-        else:
-            print(f"'items' key missing in response for page: {page}")
+                print(f"'items' key missing in response for page: {page}")
+                missing.append(page)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request error for {page}: {e}")
             missing.append(page)
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request error for {page}: {e}")
-        missing.append(page)
+        except ValueError as e:
+            print(f"ValueError for page {page}: {e}")
+            missing.append(page)
 
-    except ValueError as e:
-        print(f"ValueError for page {page}: {e}")
-        missing.append(page)
+        if len(items_df)==0:
+            print(f"wiki pageviews data frame empty: {page}")
+            missing.append(page)
 
-    if len(df)==0:
-        print(f"wiki pageviews df empty: {page}")
-        missing.append(page)
+        dat.append(items_df)
 
-    dat.append(df)
+    build_wiki_pv = pd.concat(dat).reset_index(drop=True)
+    build_wiki_pv['Date'] =  pd.to_datetime(build_wiki_pv['timestamp'], format='%Y%m%d%H')
+    return build_wiki_pv
 
-wiki_pageviews = pd.concat(dat).reset_index(drop=True)
-wiki_pageviews['Date'] =  pd.to_datetime(wiki_pageviews['timestamp'], format='%Y%m%d%H')
+sp500_dataframe = get_sp500_tickers()
+wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
 
-
-# Get daily stocks data
-sp500_tickers = sp_df['Symbol']
+####################################################################################################
+# Get daily stocks data for each company wih yfinance ##############################################
+####################################################################################################
+sp500_tickers = sp500_dataframe['Symbol']
 
 selected_tickers = list(sp500_tickers)
 
@@ -190,19 +225,11 @@ for index, row in os_df_date_tick.iterrows():
 
 os_df_days = pd.concat(dat_list, ignore_index=True)
 
+####################################################################################################
+# Get historical weaher data for NYC from NOAA and weather.gov #####################################
+####################################################################################################
+NOAA_BASE_URL = 'https://www.ncei.noaa.gov/cdo-web/api/v2/data'
 
-# Federal funds rate (not exact match to current numbers?)
-fred = Fred(api_key=fred_api_key)
-
-ffr = fred.get_series('FEDFUNDS').to_frame(name='federal_funds_rate')
-
-ffr.loc[datetime.today().strftime('%Y-%m-%d'), 'federal_funds_rate'] = ffr['federal_funds_rate'][-1]
-
-ffr = ffr.resample('D').ffill()
-ffr = ffr.reset_index(names='Date')
-
-
-# Get historical weaher data for NYC from NOAA
 current_start_date = datetime.strptime(START_DATE, "%Y-%m-%d")
 end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
@@ -218,8 +245,6 @@ while current_start_date <= end_date:
     current_start_date = current_end_date + timedelta(days=1)
 
 date_ranges_df = pd.DataFrame(date_ranges)
-
-NOAA_BASE_URL = 'https://www.ncei.noaa.gov/cdo-web/api/v2/data'
 
 headers = {
     'token': noaa_api_key
@@ -323,11 +348,16 @@ just_new = weather_simp.loc[weather_simp['date']>max(weather_df['date'])]
 
 weather_df = pd.concat([weather_df,just_new]).reset_index(drop=True)
 
+####################################################################################################
+# main #############################################################################################
+####################################################################################################
+ffr = get_federal_funds_rate()
 
-# Save everything to csv files
-sp_df.to_csv(f'sp_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-wiki_pageviews.to_csv(f'wiki_pageviews_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-stocks_df.to_csv(f'stocks_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-os_df_days.to_csv(f'os_df_days_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-ffr.to_csv(f'ffr_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-weather_df.to_csv(f'weather_df_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+save_data_to_csv({
+    'sp_df':sp500_dataframe,
+    'wiki_pageviews':wiki_pageviews,
+    'stocks_df':stocks_df,
+    ':os_df_days':os_df_days,
+    'ffr':ffr,
+    'weather_df':weather_df
+})
