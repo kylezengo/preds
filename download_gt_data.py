@@ -79,6 +79,42 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
 
     return gt_adjusted
 
+def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
+    """
+    Custom retry function to handle exceptions and retry the request.
+
+    Parameters::
+        kw (str): Keyword to search for.
+        pytrends (TrendReq): Pytrends object.
+        df_list (list): List to store DataFrames.
+        no_resp_list (list): List to store failed requests.
+        rep_count (int): Number of retry attempts.
+    """
+    for attempt in range(rep_count):
+        try:
+            resp_df = pytrends.interest_over_time()
+            if resp_df.empty:
+                no_resp_list.append(str(pytrends.token_payload))
+            else:
+                resp_df = resp_df.reset_index()
+                resp_df = resp_df.rename(columns={kw:'index'})
+                resp_df['search_term'] = kw
+                resp_df['pytrends_params'] = str(pytrends.token_payload)
+                df_list.append(resp_df)
+
+            logging.info("Success!")
+            break
+        except requests.exceptions.RequestException as e:
+            logging.error('RequestException: %s',e)
+            if attempt<(rep_count-1):
+                logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
+                time.sleep(71)
+        except ResponseError as e:
+            logging.error("ResponseError: %s", e)
+            if attempt<(rep_count-1):
+                logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
+                time.sleep(71)
+
 def main():
     """
     Main function to download Google Trends data and clean it up.
@@ -236,33 +272,11 @@ def main():
                 if str(pytrends.token_payload) not in past_daily_requests:
                     logging.info("This week is new, gathering interest_over_time...")
 
-                    for _attempt in range(3):
-                        try:
-                            daily_us = pytrends.interest_over_time()
-                            daily_us = daily_us.reset_index()
-                            daily_us = daily_us.rename(columns={kw:'index'})
-                            daily_us['search_term'] = kw
-                            daily_us['pytrends_params'] = str(pytrends.token_payload)
-                            dat.append(daily_us)
-                            logging.info("Success!")
-                            if len(daily_us)==0:
-                                params_return_empty_df_new.append(str(pytrends.token_payload))
-                            break
-                        except requests.exceptions.RequestException as e:
-                            logging.error('RequestException: %s',e)
-                            if _attempt<2:
-                                logging.error('Sleeping for 71s and then trying attempt %d...',_attempt+2)
-                                time.sleep(71)
-                        except ResponseError as e:
-                            logging.error("ResponseError: %s", e)
-                            if _attempt<2:
-                                logging.error('Sleeping for 71s and then trying attempt %d...',_attempt+2)
-                                time.sleep(71)
+                    custom_retry(kw, pytrends, dat, params_return_empty_df_new, 3)
 
                 time.sleep(2)
 
         finally:
-            print(f"hit finally block here on kw={kw}")
             if dat:
                 gt_daily_new = pd.concat(dat)
 
@@ -277,11 +291,11 @@ def main():
                     f.writelines(f"{item}\n" for item in params_return_empty_df)
 
     # Clean up (refresh "raw" files first)
-    gt_monthly_raw, gt_weekly_raw, gt_daily_raw = load_existing_data()
+    gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed = load_existing_data()
 
-    gt_adjusted = clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw)
+    gt_adjusted_raw = clean_up(gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed)
 
-    gt_adjusted.to_csv(f'gt_adjusted_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+    gt_adjusted_raw.to_csv(f'gt_adjusted_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
 if __name__ == "__main__":
     main()
