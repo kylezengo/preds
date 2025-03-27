@@ -115,31 +115,26 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
                 logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
                 time.sleep(71)
 
-def main():
+def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw):
     """
-    Main function to download Google Trends data and clean it up.
+    Review past requests to determine which data needs to be fetched.
+
+    Builds year ranges to pull weekly data and week ranges to pull daily data. Checks if the
+    data for the keyword and year or keyword and week already exists, avoiding redundant
+    requests. Google Trends returns weekly data when a full year is requested and daily data
+    when one week is requested.
+
+    Parameters:
+        my_kws (set): Set of keywords to search for.
+        params_return_empty_df_raw (list): List of parameters that returned empty data frames.
+        gt_weekly_raw (DataFrame): DataFrame containing raw weekly Google Trends data.
+        gt_daily_raw (DataFrame): DataFrame containing raw daily Google Trends data.
+
+    Returns:
+        tuple: Contains dictionaries for year ranges to do, week ranges to do, and parameters
+            that returned empty data frames.
     """
-    gt_monthly_raw, gt_weekly_raw, gt_daily_raw = load_existing_data()
-
-    params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
-    params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
-    with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
-        params_return_empty_df_raw = [line.strip() for line in f]
-
-    pytrends = TrendReq(retries=8, backoff_factor=2)
-
-    past_weekly_requests = set(gt_weekly_raw['pytrends_params'])
-    # params_return_empty_df_raw only in daily for now
-    past_daily_requests = set(list(gt_daily_raw['pytrends_params'])+params_return_empty_df_raw)
-
-    if new_keyword:
-        my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
-    else:
-        my_kws = set(gt_daily_raw['search_term'])
-
-    # Build year ranges to pull weekly data (Google Trends returns weekly data when a full year
-    # is requested). Check if we already have the data for the keyword and year, don't need to
-    # make the request again.
+    # Build year ranges to pull weekly data
     years = list(range(2004, datetime.now().year+1))
     year_ranges = [(f'{year}-01-01 {year}-12-31') for year in years]
 
@@ -161,9 +156,7 @@ def main():
         kw_yrtd[kw] = year_ranges_to_do
         logging.info('Need to get %d year ranges for "%s"', len(year_ranges_to_do), kw)
 
-    # Build week ranges to pull daily data (Google Trends returns daily data when one week is
-    # requested) Check if we already have the data for the keyword and week, don't need to make
-    # the request again.
+    # Build week ranges to pull daily data
     week_ranges = list(gt_weekly_raw['start_date'].astype(str)+" "+gt_weekly_raw['end_date'].astype(str))
     week_ranges = list(set(week_ranges))
 
@@ -197,6 +190,34 @@ def main():
                 len(week_ranges_to_do)-len(params_return_empty_df_dict[kw]),
                 kw
             )
+    return kw_yrtd, kw_wrtd, params_return_empty_df_dict
+
+
+def main():
+    """
+    Main function to download Google Trends data and clean it up.
+    """
+    gt_monthly_raw, gt_weekly_raw, gt_daily_raw = load_existing_data()
+
+    params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
+    params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
+    with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
+        params_return_empty_df_raw = [line.strip() for line in f]
+
+    pytrends = TrendReq(retries=8, backoff_factor=2)
+
+    past_weekly_requests = set(gt_weekly_raw['pytrends_params'])
+    # params_return_empty_df_raw only in daily for now
+    past_daily_requests = set(list(gt_daily_raw['pytrends_params'])+params_return_empty_df_raw)
+
+    if new_keyword:
+        my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
+    else:
+        my_kws = set(gt_daily_raw['search_term'])
+
+    kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
+        my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw
+    )
 
     # Get the interest index by month since 2004
     dat = []

@@ -84,12 +84,6 @@ def get_sp500_tickers():
     build_sp_df = pd.concat([build_sp_df,build_sp_df_spy],ignore_index=True)
     return build_sp_df
 
-def save_data_to_csv(dic_of_dfs):
-    """Save data to CSV files"""
-    today_str = datetime.today().strftime("%Y%m%d")
-    for df_name, final_df in dic_of_dfs.items():
-        final_df.to_csv(f"{df_name}_{today_str}.csv", index=False)
-
 def get_wikipedia_pageviews(sp_df):
     """
     Get daily wikipedia pageviews for each company
@@ -139,8 +133,14 @@ def get_wikipedia_pageviews(sp_df):
     build_wiki_pv['Date'] =  pd.to_datetime(build_wiki_pv['timestamp'], format='%Y%m%d%H')
     return build_wiki_pv
 
+def save_data_to_csv(dic_of_dfs):
+    """Save data to CSV files"""
+    today_str = datetime.today().strftime("%Y%m%d")
+    for df_name, final_df in dic_of_dfs.items():
+        final_df.to_csv(f"{df_name}_{today_str}.csv", index=False)
+
+
 sp500_dataframe = get_sp500_tickers()
-wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
 
 ####################################################################################################
 # Get daily stocks data for each company wih yfinance ##############################################
@@ -352,6 +352,7 @@ weather_df = pd.concat([weather_df,just_new]).reset_index(drop=True)
 # main #############################################################################################
 ####################################################################################################
 ffr = get_federal_funds_rate()
+wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
 
 save_data_to_csv({
     'sp_df':sp500_dataframe,
