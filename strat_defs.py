@@ -280,16 +280,25 @@ def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, n_job
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        LogisticRegression(warm_start=logit_warm_start,n_jobs=n_jobs)
+        LogisticRegression(warm_start=logit_warm_start)
     )
 
-
-    param_grid = {
-        "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
-        "logisticregression__C": np.logspace(-4, 4, 9),
-        "logisticregression__solver": ["lbfgs", "liblinear", "saga"],
-        "logisticregression__max_iter": [100, 500, 1000]
-    }
+    # Parameter grid with conditional n_jobs
+    param_grid = [
+        {  # Case where solver is liblinear → NO n_jobs
+            "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+            "logisticregression__C": np.logspace(-4, 4, 9),
+            "logisticregression__solver": ["liblinear"],
+            "logisticregression__max_iter": [100, 500, 1000],
+        },
+        {  # Case where solver is lbfgs or saga → USE n_jobs
+            "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+            "logisticregression__C": np.logspace(-4, 4, 9),
+            "logisticregression__solver": ["lbfgs", "saga"],
+            "logisticregression__max_iter": [100, 500, 1000],
+            "logisticregression__n_jobs": [n_jobs],  # Only set n_jobs for these solvers
+        }
+    ]
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
