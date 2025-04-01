@@ -48,7 +48,33 @@ class IndicatorConfig:
     macd: MACDConfig = field(default_factory=MACDConfig)
 
 
- # Technical indicators
+def load_data():
+    """
+    Load data from CSV files.
+    """
+    stocks_df_files = glob.glob('stocks_df_*.csv')
+    stocks_df_latest = max(stocks_df_files, key=os.path.getctime)
+    stocks_df_raw = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
+
+    wiki_pageviews_files = glob.glob('wiki_pageviews_*.csv')
+    wiki_pageviews_latest = max(wiki_pageviews_files, key=os.path.getctime)
+    wiki_pageviews = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
+
+    ffr_files = glob.glob('ffr_*.csv')
+    ffr_latest = max(ffr_files, key=os.path.getctime)
+    ffr = pd.read_csv(ffr_latest, parse_dates=['Date'])
+
+    weather_files = glob.glob('weather_*.csv')
+    weather_latest = max(weather_files, key=os.path.getctime)
+    weather = pd.read_csv(weather_latest, parse_dates=['date'])
+
+    gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
+    gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
+    gt_adjusted = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
+
+    return stocks_df_raw, wiki_pageviews, ffr, weather, gt_adjusted
+
+# Technical indicators
 def calculate_rsi_wide(data, target, ticker, window):
     """
     Calculate the Relative Strength Index (RSI).
@@ -176,7 +202,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
 
 
 # Build dataframes
-def gen_stocks_w(ticker, drop_tickers=None):
+def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
     """
     Generates stocks_w dataframe
 
@@ -187,17 +213,8 @@ def gen_stocks_w(ticker, drop_tickers=None):
     Returns:
         DataFrame: stocks_w dataframe
     """
-    # Load data
-    stocks_df_files = glob.glob('stocks_df_*.csv')
-    stocks_df_latest = max(stocks_df_files, key=os.path.getctime)
-    stocks_df_raw = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
-    wiki_pageviews_files = glob.glob('wiki_pageviews_*.csv')
-    wiki_pageviews_latest = max(wiki_pageviews_files, key=os.path.getctime)
-    wiki_pageviews_raw = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
-
-    #
-    stocks_df = stocks_df_raw.copy()
+    stocks_df = stocks_df.copy()
 
     tickers_list = [
         'A','AAPL','ABBV','ABNB','ABT','ACGL','ACN','ADBE','ADI','ADM','ADP','ADSK','AEE','AEP',
@@ -254,7 +271,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
     stocks_df['movement'] = stocks_df.groupby('ticker')['Adj Close'].diff() * stocks_df['Volume']
 
     stocks_df = stocks_df.merge(
-        wiki_pageviews_raw[['Date','ticker','views']],how='left', on=['Date','ticker']
+        wiki_pageviews[['Date','ticker','views']],how='left', on=['Date','ticker']
     )
 
     # Some companies have calss A, B, etc. stock. See sp_df for details. Choosing class A for now.
@@ -273,7 +290,7 @@ def gen_stocks_w(ticker, drop_tickers=None):
 
     return stocks_w
 
-def prep_data(config: IndicatorConfig, drop_tickers=None):
+def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: IndicatorConfig, drop_tickers=None):
     """
     Prepare data for forecasting strategies (add some extra features).
 
@@ -284,19 +301,9 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     Returns:
         DataFrame: Prepared data with additional features and technical indicators.
     """
-    ffr_files = glob.glob('ffr_*.csv')
-    ffr_latest = max(ffr_files, key=os.path.getctime)
-    ffr_raw = pd.read_csv(ffr_latest, parse_dates=['Date'])
+    target_ticker = config.target+"_"+config.ticker
 
-    weather_files = glob.glob('weather_*.csv')
-    weather_latest = max(weather_files, key=os.path.getctime)
-    weather_raw = pd.read_csv(weather_latest, parse_dates=['date'])
-
-    gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
-    gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
-    gt_adjusted_raw = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
-
-    prepd_data = gen_stocks_w(config.ticker, drop_tickers)
+    prepd_data = gen_stocks_w(config.ticker, stocks_df, wiki_pageviews, drop_tickers)
 
     # Sunlight
     nyc = LocationInfo("New York City", "USA", "America/New_York", 40.7128, -74.0060)
@@ -311,20 +318,17 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     prepd_data = prepd_data.merge(ffr_raw,on='Date',how='left')
 
     # NYC weather (high and low temperature and precipitation)
-    weather = weather_raw.rename(columns={'date': 'Date'})
+    weather = weather.rename(columns={'date': 'Date'})
     prepd_data = prepd_data.merge(weather,on='Date',how='left')
 
     # Google Trends
-    gt_adjusted_pivot = gt_adjusted_raw.pivot(index='date', columns='search_term',values=['index'])
+    gt_adjusted_pivot = gt_adjusted.pivot(index='date', columns='search_term',values=['index'])
 
     gt_adjusted_pivot.columns = ['_'.join(col).strip() for col in gt_adjusted_pivot.columns.values]
     gt_adjusted_pivot = gt_adjusted_pivot.reset_index().rename_axis(None, axis=1)
     gt_adjusted_pivot = gt_adjusted_pivot.rename(columns={'date': 'Date'})
 
     prepd_data = prepd_data.merge(gt_adjusted_pivot,on='Date',how='left')
-
-    #
-    target_ticker = config.target+"_"+config.ticker
 
     # Streaks
     prepd_data['yesterday_to_today'] = np.where(
@@ -340,21 +344,6 @@ def prep_data(config: IndicatorConfig, drop_tickers=None):
     prepd_data['streak1'] = np.where(prepd_data['yesterday_to_today']==0,0,prepd_data['streak'])
 
     prepd_data = prepd_data.drop(columns=['yesterday_to_today','streak'])
-
-    # Must be inside the strategies ##################################
-    # data['next_is_0'] = (data['yesterday_to_today'].shift(-1) == 0).astype(int) # leak
-    # data['next_is_1'] = (data['yesterday_to_today'].shift(-1) == 1).astype(int)
-
-    # # prob of a 0 or 1 following a streak length
-    # prob_df_0 = data.groupby('streak0')['next_is_0'].mean().to_frame() # leak?
-    # prob_df_0 = prob_df_0.rename(columns={'next_is_0': 'prob_next_is_0'})
-    # prob_df_1 = data.groupby('streak1')['next_is_1'].mean().to_frame()
-    # prob_df_1 = prob_df_1.rename(columns={'next_is_1': 'prob_next_is_1'})
-
-    # # Merge probabilities back into original DataFrame
-    # data = data.merge(prob_df_0, how='left', left_on='streak0', right_index=True)
-    # data = data.merge(prob_df_1, how='left', left_on='streak1', right_index=True)
-    ##################################################################
 
     prepd_data = calculate_technical_indicators(prepd_data, config)
 
