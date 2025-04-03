@@ -290,7 +290,8 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
 
     return stocks_w
 
-def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: IndicatorConfig, drop_tickers=None):
+def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: IndicatorConfig,
+              drop_tickers=None):
     """
     Prepare data for forecasting strategies (add some extra features).
 
@@ -330,9 +331,15 @@ def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: 
 
     prepd_data = prepd_data.merge(gt_adjusted_pivot,on='Date',how='left')
 
+    # Check for missing or duplicate dates after merging
+    if prepd_data['Date'].isna().any():
+        print("Warning: Missing dates in prepd_data after merging.")
+    if prepd_data['Date'].duplicated().any():
+        print("Warning: Duplicate dates in prepd_data after merging.")
+
     # Streaks
     prepd_data['yesterday_to_today'] = np.where(
-        (prepd_data[target_ticker]-prepd_data[target_ticker].shift(1)) < 0, 0, 1
+        (prepd_data[target_ticker] - prepd_data[target_ticker].shift(1)) < 0, 0, 1
     )
 
     # Calculate the length of consecutive streaks of up or down days
@@ -358,9 +365,10 @@ def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: 
     prepd_data = pd.get_dummies(prepd_data, columns=['day_of_week_name'],
                                 drop_first=True, dtype=int)
 
-    # Target
+    # Calculate Target column
+    prepd_data = prepd_data.sort_values(by='Date').reset_index(drop=True)
     prepd_data['Target'] = np.where(
-        (prepd_data[target_ticker].shift(-1)-prepd_data[target_ticker]) < 0, 0, 1
+        (prepd_data[target_ticker].shift(-1) - prepd_data[target_ticker]) < 0, 0, 1
     )
 
     return prepd_data

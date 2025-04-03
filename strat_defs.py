@@ -303,7 +303,7 @@ def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, n_job
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
     # print(search.best_params_)
-    print(search.best_estimator_.classes_)
+    # print(search.best_estimator_.classes_)
 
     return proba_loop(data, initial_train_period, feats, search.best_estimator_, logit_proba)
 
@@ -651,7 +651,8 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, random_state=None, 
 
 
 # Backtest
-def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, random_state=None, **kwargs):
+def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
+                      random_state=None, **kwargs):
     """
     Backtest various trading strategies.
 
