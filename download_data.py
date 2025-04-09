@@ -360,7 +360,7 @@ save_data_to_csv({
     'sp_df':sp500_dataframe,
     'wiki_pageviews':wiki_pageviews,
     'stocks_df':stocks_df,
-    ':os_df_days':os_df_days,
+    'os_df_days':os_df_days,
     'ffr':ffr,
     'weather_df':weather_df
 })

@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from pandas.tseries.offsets import MonthBegin, MonthEnd
@@ -44,7 +44,12 @@ def load_existing_data():
     gt_daily_latest = max(gt_daily_files, key=os.path.getctime)
     gt_daily_loaded = pd.read_csv(gt_daily_latest, parse_dates=['date'])
 
-    return gt_monthly_loaded, gt_weekly_loaded, gt_daily_loaded
+    params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
+    params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
+    with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
+        params_return_empty_df_raw = [line.strip() for line in f]
+
+    return gt_monthly_loaded, gt_weekly_loaded, gt_daily_loaded, params_return_empty_df_raw
 
 def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     """
@@ -147,6 +152,10 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
         year_ranges_completed = kw_data['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
         year_ranges_completed = list(set(year_ranges_completed))
 
+        # Remove the current year - new weeks in current year may have occurred
+        current_year_date_range = f"{datetime.now().year}-01-01 {datetime.now().year}-12-31"
+        year_ranges_completed.remove(current_year_date_range)
+
         kw_yrc[kw] = year_ranges_completed
         logging.info('Already have %d year ranges for "%s"', len(kw_yrc[kw]), kw)
 
@@ -157,8 +166,13 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
         logging.info('Need to get %d year ranges for "%s"', len(year_ranges_to_do), kw)
 
     # Build week ranges to pull daily data
-    week_ranges = list(gt_weekly_raw['start_date'].astype(str)+" "+gt_weekly_raw['end_date'].astype(str))
-    week_ranges = list(set(week_ranges))
+    week_ranges = []
+    current = datetime.strptime("2003-12-28", "%Y-%m-%d")
+    while current <= datetime.today():
+        week_start = current
+        week_end = current + timedelta(days=6)
+        week_ranges.append(f"{week_start.strftime('%Y-%m-%d')} {week_end.strftime('%Y-%m-%d')}")
+        current += timedelta(weeks=1)
 
     params_return_empty_df_dict ={}
     for kw in my_kws:
@@ -197,12 +211,7 @@ def main():
     """
     Main function to download Google Trends data and clean it up.
     """
-    gt_monthly_raw, gt_weekly_raw, gt_daily_raw = load_existing_data()
-
-    params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
-    params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
-    with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
-        params_return_empty_df_raw = [line.strip() for line in f]
+    gt_monthly_raw, gt_weekly_raw, gt_daily_raw, params_return_empty_df_raw = load_existing_data()
 
     pytrends = TrendReq(retries=8, backoff_factor=2)
 
@@ -251,13 +260,15 @@ def main():
         gt_monthly.to_csv(f'gt_monthly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
     # Get the interest index by week for each year for the selected keywords
+    current_year_date_range = f"{datetime.now().year}-01-01 {datetime.now().year}-12-31"
+    past_weekly_requests_ncy = [x for x in past_weekly_requests if current_year_date_range not in x]
     for kw in my_kws:
         try:
             dat = []
             for one_year_timeframe in kw_yrtd[kw]:
                 pytrends.build_payload([kw], cat=0, timeframe=one_year_timeframe, geo="US")
 
-                if str(pytrends.token_payload) not in past_weekly_requests:
+                if str(pytrends.token_payload) not in past_weekly_requests_ncy:
                     weekly_us = pytrends.interest_over_time()
                     weekly_us = weekly_us.reset_index()
                     weekly_us = weekly_us.rename(columns={'date':'start_date', kw:'index'})
@@ -312,7 +323,7 @@ def main():
                     f.writelines(f"{item}\n" for item in params_return_empty_df)
 
     # Clean up (refresh "raw" files first)
-    gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed = load_existing_data()
+    gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed, params_return_empty_df_raw = load_existing_data()
 
     gt_adjusted_raw = clean_up(gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed)
 
