@@ -108,7 +108,9 @@ def get_wikipedia_pageviews(sp_df):
                 items_df = pd.DataFrame(json_data['items'])
 
                 if len(sp_df.loc[sp_df['wiki_page']==page,'Symbol']) > 1:
-                    items_df['ticker'] = ','.join(list(sp_df.loc[sp_df['wiki_page']==page,'Symbol']))
+                    items_df['ticker'] = ','.join(
+                        list(sp_df.loc[sp_df['wiki_page']==page,'Symbol'])
+                    )
                 else:
                     items_df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
             else:
@@ -282,13 +284,13 @@ for index, row in date_ranges_df.iterrows():
     data = response.json()
 
     for item in data['results']:
-        date = item['date']
+        item_date = item['date']
         datatype = item['datatype']
         value = item['value']
 
         # Initialize date entry if not already present
-        if date not in weather_data:
-            weather_data[date] = {'date': date
+        if item_date not in weather_data:
+            weather_data[item_date] = {'date': item_date
                                     ,'high_temp_nyc': None
                                     ,'low_temp_nyc': None
                                     ,'precipitation_PRCP_nyc': None
@@ -296,13 +298,13 @@ for index, row in date_ranges_df.iterrows():
 
         # Update the weather data dictionary based on the datatype
         if datatype == 'TMAX':
-            weather_data[date]['high_temp_nyc'] = value
+            weather_data[item_date]['high_temp_nyc'] = value
         elif datatype == 'TMIN':
-            weather_data[date]['low_temp_nyc'] = value
+            weather_data[item_date]['low_temp_nyc'] = value
         elif datatype == 'PRCP':
-            weather_data[date]['precipitation_PRCP_nyc'] = value
+            weather_data[item_date]['precipitation_PRCP_nyc'] = value
         elif datatype == 'SNOW':
-            weather_data[date]['precipitation_SNOW_nyc'] = value
+            weather_data[item_date]['precipitation_SNOW_nyc'] = value
     time.sleep(1)
 
 weather_records = list(weather_data.values())
