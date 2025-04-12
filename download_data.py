@@ -1,5 +1,6 @@
 """This module downloads the data necessary to test different strategies"""
 
+import glob
 import os
 import time
 import urllib.parse
@@ -21,6 +22,16 @@ WIKI_SDATE = "20150701" # earliest date is"20150701"
 WIKI_BASE_URL = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/"
 START_DATE = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
 end_date = datetime.today().strftime('%Y-%m-%d')
+
+def load_existing_data():
+    """
+    Load existing weather data from CSV files.
+    """
+    weather_df_files = glob.glob('weather_df_*.csv')
+    weather_df_latest = max(weather_df_files, key=os.path.getctime)
+    weather_df_loaded = pd.read_csv(weather_df_latest, parse_dates=['date'])
+
+    return weather_df_loaded
 
 def get_federal_funds_rate():
     """
@@ -231,15 +242,21 @@ os_df_days = pd.concat(dat_list, ignore_index=True)
 # Get historical weaher data for NYC from NOAA and weather.gov #####################################
 ####################################################################################################
 NOAA_BASE_URL = 'https://www.ncei.noaa.gov/cdo-web/api/v2/data'
+OBSERVATIONS_URL = "https://api.weather.gov/stations/KNYC/observations"
+STATIONID = "GHCND:USW00094728" # Central Park Station in NYC
+
+weather_df_hist = load_existing_data()
+
+# Set up date_ranges - the data we are going to get download in the current run
+# date_ranges is a list of dictionaries with start and end dates for 29 (30?) day periods
+# filter to end_date >= min(one_year_ago,last_hist_data_date)
+end_date_dt = datetime.strptime(end_date, "%Y-%m-%d") # to datetime
 
 current_start_date = datetime.strptime(START_DATE, "%Y-%m-%d")
-end_date = datetime.strptime(end_date, "%Y-%m-%d")
-
 date_ranges = []
-while current_start_date <= end_date:
+while current_start_date <= end_date_dt:
     current_end_date = current_start_date + timedelta(days=29)
-
-    current_end_date = min(current_end_date, end_date)
+    current_end_date = min(current_end_date, end_date_dt)
 
     date_ranges.append({'start_date': current_start_date.strftime("%Y-%m-%d")
                         ,'end_date': current_end_date.strftime("%Y-%m-%d")})
@@ -247,6 +264,14 @@ while current_start_date <= end_date:
     current_start_date = current_end_date + timedelta(days=1)
 
 date_ranges_df = pd.DataFrame(date_ranges)
+
+one_year_ago = (datetime.now()-timedelta(days=365)).strftime("%Y-%m-%d") # to string
+last_hist_data_date = max(weather_df_hist['date']).strftime("%Y-%m-%d") # to string
+
+date_ranges_df = date_ranges_df.loc[
+    date_ranges_df['end_date'] >= min(one_year_ago,last_hist_data_date)
+]
+date_ranges_df = date_ranges_df.reset_index(drop=True)
 
 headers = {
     'token': noaa_api_key
@@ -256,32 +281,37 @@ weather_data = {}
 for index, row in date_ranges_df.iterrows():
     params = {
         'datasetid': 'GHCND',  # Daily Summaries dataset
-        'stationid': 'GHCND:USW00094728',  # Central Park Station in NYC
+        'stationid': STATIONID,
         'startdate': row['start_date'],
         'enddate': row['end_date'],
         'units': 'metric',  # Use metric units (Celsius for temperatures, mm for precipitation)
         'limit': 1000  # Maximum number of records to fetch
     }
 
-    response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
+    resp = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
 
-    if response.status_code != 200:
-        print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
-        print(f'Trying start date {row['start_date']} again')
+    if resp.status_code != 200:
+        print(f"Error at start date {row['start_date']}: {resp.status_code}, {resp.text}")
+        print(f"Trying start date {row['start_date']} again")
         time.sleep(10)
-        response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
-        if response.status_code != 200:
-            print(f'Second error at start date {row['start_date']}: {response.status_code}, {response.text}')
-            print(f'Failed twice. Trying start date {row['start_date']} one last time')
+        resp = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
+        if resp.status_code != 200:
+            print(f"Error #2 at start date {row['start_date']}: {resp.status_code}, {resp.text}")
+            print(f"Failed twice. Trying start date {row['start_date']} one last time")
             time.sleep(20)
-            response = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
-            if response.status_code != 200:
-                print(f'Error at start date {row['start_date']}: {response.status_code}, {response.text}')
+            resp = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
+            if resp.status_code != 200:
+                print(f"Error at start date {row['start_date']}: {resp.status_code}, {resp.text}")
                 print("Failed three times. Not trying again")
                 break
 
-    print(response.status_code, row['start_date'])
-    data = response.json()
+    print(resp.status_code, row['start_date'])
+    data = resp.json()
+
+    # Check if 'results' key exists
+    if 'results' not in data:
+        print(f"No 'results' key in response for start date {row['start_date']} data: {data}")
+        continue  # Skip to the next iteration if 'results' is missing
 
     for item in data['results']:
         item_date = item['date']
@@ -309,12 +339,10 @@ for index, row in date_ranges_df.iterrows():
 
 weather_records = list(weather_data.values())
 
-weather_df = pd.DataFrame(weather_records)
-weather_df['date'] = pd.to_datetime(weather_df['date'])
+noaa_weather = pd.DataFrame(weather_records)
+noaa_weather['date'] = pd.to_datetime(noaa_weather['date'])
 
 # Recent weather
-OBSERVATIONS_URL = "https://api.weather.gov/stations/KNYC/observations"
-
 observations_response = requests.get(OBSERVATIONS_URL, timeout=300)
 observations_response.raise_for_status()
 observations = observations_response.json()
@@ -345,10 +373,12 @@ weather_simp = recent_weather_df[simp_cols]
 weather_simp = weather_simp.groupby('date').agg(low_temp_nyc=('temperature', 'min')
                                                 ,high_temp_nyc=('temperature', 'max')).reset_index()
 
-# Putting it all togeather
-just_new = weather_simp.loc[weather_simp['date']>max(weather_df['date'])]
+just_new = weather_simp.loc[weather_simp['date']>max(noaa_weather['date'])]
 
-weather_df = pd.concat([weather_df,just_new]).reset_index(drop=True)
+# Putting it all togeather
+weather_df_hist = weather_df_hist.loc[weather_df_hist['date']<min(noaa_weather['date'])]
+
+weather_df = pd.concat([weather_df_hist, noaa_weather, just_new]).reset_index(drop=True)
 
 ####################################################################################################
 # main #############################################################################################
