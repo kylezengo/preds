@@ -82,15 +82,17 @@ def get_sp500_tickers():
     for key, replacement_value in replacements.items():
         build_sp_df.loc[build_sp_df['wiki_page'] == key, 'wiki_page'] = replacement_value
 
-    build_sp_df_spy = pd.DataFrame([{'Symbol': "SPY",
-                            'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
-                            'GICS Sector': None,
-                            'GICS Sub-Industry': None,
-                            'Headquarters Location': None,
-                            'Date added': "1993-01-22",
-                            'CIK': None,
-                            'Founded': "1993-01-22",
-                            'wiki_page': "S%26P_500"}])
+    build_sp_df_spy = pd.DataFrame([{
+        'Symbol': "SPY",
+        'Security': "S&P 500", # technically the SPDR S&P 500 ETF Trust
+        'GICS Sector': None,
+        'GICS Sub-Industry': None,
+        'Headquarters Location': None,
+        'Date added': "1993-01-22",
+        'CIK': None,
+        'Founded': "1993-01-22",
+        'wiki_page': "S%26P_500"
+    }])
 
     build_sp_df = pd.concat([build_sp_df,build_sp_df_spy],ignore_index=True)
     return build_sp_df

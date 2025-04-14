@@ -154,7 +154,7 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
 
         # Remove the current year - new weeks in current year may have occurred
         current_year_date_range = f"{datetime.now().year}-01-01 {datetime.now().year}-12-31"
-        year_ranges_completed.remove(current_year_date_range)
+        year_ranges_completed = [x for x in year_ranges_completed if x != current_year_date_range]
 
         kw_yrc[kw] = year_ranges_completed
         logging.info('Already have %d year ranges for "%s"', len(kw_yrc[kw]), kw)
@@ -209,7 +209,7 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
 
 def main():
     """
-    Main function to download Google Trends data and clean it up.
+    Main function to download Google Trends data
     """
     gt_monthly_raw, gt_weekly_raw, gt_daily_raw, params_return_empty_df_raw = load_existing_data()
 
@@ -232,10 +232,12 @@ def main():
     dat = []
     for kw in my_kws:
         try:
-            pytrends.build_payload([kw],
-                                cat=0,
-                                timeframe=f'2004-01-01 {datetime.now().strftime("%Y-%m-%d")}',
-                                geo="US")
+            pytrends.build_payload(
+                [kw],
+                cat=0,
+                timeframe=f'2004-01-01 {datetime.now().strftime("%Y-%m-%d")}',
+                geo="US"
+            )
             df = pytrends.interest_over_time()
             df = df.reset_index()
             df = df.rename(columns={'date':'start_date', kw:'index'})
@@ -260,6 +262,7 @@ def main():
         gt_monthly.to_csv(f'gt_monthly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
     # Get the interest index by week for each year for the selected keywords
+    # past_weekly_requests_ncy (not current year)
     current_year_date_range = f"{datetime.now().year}-01-01 {datetime.now().year}-12-31"
     past_weekly_requests_ncy = [x for x in past_weekly_requests if current_year_date_range not in x]
     for kw in my_kws:
