@@ -54,9 +54,12 @@ def load_existing_data():
         gt_daily_loaded = pd.DataFrame(columns=['date','index','isPartial','search_term','pytrends_params'])
 
     params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
-    params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
-    with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
-        params_return_empty_df_raw = [line.strip() for line in f]
+    if params_return_empty_df_files:
+        params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
+        with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
+            params_return_empty_df_raw = [line.strip() for line in f]
+    else:
+        params_return_empty_df_raw = []
 
     return gt_monthly_loaded, gt_weekly_loaded, gt_daily_loaded, params_return_empty_df_raw
 
