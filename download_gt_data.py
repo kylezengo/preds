@@ -249,7 +249,6 @@ def main():
 
         except requests.exceptions.RequestException as e:
             logging.error("RequestException: %s", e)
-
         except ResponseError as e:
             logging.error("ResponseError: %s", e)
 
@@ -265,10 +264,10 @@ def main():
     # past_weekly_requests_ncy (not current year)
     current_year_date_range = f"{datetime.now().year}-01-01 {datetime.now().year}-12-31"
     past_weekly_requests_ncy = [x for x in past_weekly_requests if current_year_date_range not in x]
+    dat = []
     for kw in my_kws:
-        try:
-            dat = []
-            for one_year_timeframe in kw_yrtd[kw]:
+        for one_year_timeframe in kw_yrtd[kw]:
+            try:
                 pytrends.build_payload([kw], cat=0, timeframe=one_year_timeframe, geo="US")
 
                 if str(pytrends.token_payload) not in past_weekly_requests_ncy:
@@ -282,15 +281,19 @@ def main():
                     dat.append(weekly_us)
                 time.sleep(1)
 
-        finally:
-            if dat:
-                gt_weekly_new = pd.concat(dat)
+            except requests.exceptions.RequestException as e:
+                logging.error("RequestException: %s", e)
+                break # if it fails for one year, it will continue to fail
+            except ResponseError as e:
+                logging.error("ResponseError: %s", e)
+                break
+    if dat:
+        gt_weekly_new = pd.concat(dat)
 
-                gt_weekly = pd.concat([gt_weekly_raw,gt_weekly_new])
-                gt_weekly = gt_weekly.drop_duplicates()
+        gt_weekly = pd.concat([gt_weekly_raw,gt_weekly_new])
+        gt_weekly = gt_weekly.drop_duplicates()
 
-                gt_weekly.to_csv(f'gt_weekly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
-            time.sleep(1)
+        gt_weekly.to_csv(f'gt_weekly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
     # Get the interest index by day for each week for the selected keyword
     params_return_empty_df_new = []
@@ -318,6 +321,7 @@ def main():
                 gt_daily = pd.concat([gt_daily_raw,gt_daily_new])
                 gt_daily = gt_daily.drop_duplicates()
 
+                # does this overwrite????????????
                 gt_daily.to_csv(f'gt_daily_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
             if params_return_empty_df_new:
