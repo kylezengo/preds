@@ -46,7 +46,8 @@ class BacktestConfig:
     """
     Backtest configuration class
     """
-    overbought: int = 70
+    overbought: int = 70 # RSI overbought threshold
+    bko_window: int = 20
     logit_warm_start: bool = False
     proba: ProbaConfig = field(default_factory=ProbaConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
@@ -699,10 +700,8 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
         data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = 0
 
     elif strategy == 'Breakout':
-        bko_window = kwargs.get('bko_window')
-
-        data['High_Max'] = data['High_'+ticker].rolling(window=bko_window).max().shift(1)
-        data['Low_Min'] = data['Low_'+ticker].rolling(window=bko_window).min().shift(1)
+        data['High_Max'] = data['High_'+ticker].rolling(window=config.bko_window).max().shift(1)
+        data['Low_Min'] = data['Low_'+ticker].rolling(window=config.bko_window).min().shift(1)
         data['Signal'] = 1
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
 

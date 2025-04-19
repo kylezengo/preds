@@ -55,7 +55,7 @@ def get_sp500_tickers():
     # Get the wikipedia page for each company (part of url)
     build_sp_df['wiki_page'] = build_sp_df['Security'].apply(urllib.parse.quote_plus)
 
-    replacements = {
+    wiki_page_replacements = {
         "Alphabet+Inc.+%28Class+A%29": "Alphabet_Inc.",
         "Alphabet+Inc.+%28Class+C%29": "Alphabet_Inc.",
         'Coca-Cola+Company+%28The%29': "The_Coca-Cola_Company",
@@ -79,8 +79,16 @@ def get_sp500_tickers():
         "Campbell%27s+Company+%28The%29": "Campbell%27s"
     }
 
-    for key, replacement_value in replacements.items():
+    ticker_replacements = {
+        "BRK.B": "BRK-B",
+        "BF.B": "BF-B"
+    }
+
+    for key, replacement_value in wiki_page_replacements.items():
         build_sp_df.loc[build_sp_df['wiki_page'] == key, 'wiki_page'] = replacement_value
+
+    for key, replacement_value in ticker_replacements.items():
+        build_sp_df.loc[build_sp_df['Symbol'] == key, 'Symbol'] = replacement_value
 
     build_sp_df_spy = pd.DataFrame([{
         'Symbol': "SPY",

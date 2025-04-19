@@ -33,16 +33,25 @@ def load_existing_data():
         tuple: DataFrames for monthly, weekly, and daily data.
     """
     gt_monthly_files = glob.glob('gt_monthly_*.csv')
-    gt_monthly_latest = max(gt_monthly_files, key=os.path.getctime)
-    gt_monthly_loaded = pd.read_csv(gt_monthly_latest, parse_dates=['start_date','end_date'])
+    if gt_monthly_files:
+        gt_monthly_latest = max(gt_monthly_files, key=os.path.getctime)
+        gt_monthly_loaded = pd.read_csv(gt_monthly_latest, parse_dates=['start_date', 'end_date'])
+    else:
+        gt_monthly_loaded = pd.DataFrame(columns=['start_date','index','isPartial','end_date','search_term','pytrends_params'])
 
     gt_weekly_files = glob.glob('gt_weekly_*.csv')
-    gt_weekly_latest = max(gt_weekly_files, key=os.path.getctime)
-    gt_weekly_loaded = pd.read_csv(gt_weekly_latest, parse_dates=['start_date','end_date'])
+    if gt_weekly_files:
+        gt_weekly_latest = max(gt_weekly_files, key=os.path.getctime)
+        gt_weekly_loaded = pd.read_csv(gt_weekly_latest, parse_dates=['start_date','end_date'])
+    else:
+        gt_weekly_loaded = pd.DataFrame(columns=['start_date','index','isPartial','end_date','search_term','pytrends_params'])
 
     gt_daily_files = glob.glob('gt_daily_*.csv')
-    gt_daily_latest = max(gt_daily_files, key=os.path.getctime)
-    gt_daily_loaded = pd.read_csv(gt_daily_latest, parse_dates=['date'])
+    if gt_daily_files:
+        gt_daily_latest = max(gt_daily_files, key=os.path.getctime)
+        gt_daily_loaded = pd.read_csv(gt_daily_latest, parse_dates=['date'])
+    else:
+        gt_daily_loaded = pd.DataFrame(columns=['date','index','isPartial','search_term','pytrends_params'])
 
     params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
     params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
