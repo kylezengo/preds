@@ -67,17 +67,16 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     """
     Clean up Google Trends data by merging and adjusting indices.
     """
-    if len(gt_monthly_raw != 0):
-        index_of_month = gt_monthly_raw.copy()
-        index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+    index_of_month = gt_monthly_raw.copy()
+    index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+
+    if len(index_of_month != 0):
         index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
-        index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
-        index_of_month['month_end'] = index_of_month['month_start'] + MonthEnd(0)
-        index_of_month = index_of_month[['month_start','index_of_month','search_term']]
-        index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
-    else:
-        index_of_month = gt_monthly_raw.copy()
-        index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+
+    index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
+    index_of_month['month_end'] = index_of_month['month_start'] + MonthEnd(0)
+    index_of_month = index_of_month[['month_start','index_of_month','search_term']]
+    index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
 
     # there are duplicate start_date/search_term rows because weeks can be spread across different
     # years smart way to adjust this would be weighted average based on days of week in each year
