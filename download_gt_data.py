@@ -238,6 +238,10 @@ def main():
         my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
     else:
         my_kws = set(gt_daily_raw['search_term'])
+        
+        if not my_kws:
+            logging.error("No keywords found in existing data. Please provide a keyword using --keyword argument.")
+            return
 
     kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
         my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw
