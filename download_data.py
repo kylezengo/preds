@@ -39,7 +39,7 @@ def get_federal_funds_rate():
     """
     fred = Fred(api_key=fred_api_key)
     build_ffr = fred.get_series('FEDFUNDS').to_frame(name='federal_funds_rate')
-    build_ffr.loc[datetime.today().strftime('%Y-%m-%d'), 'federal_funds_rate'] = build_ffr['federal_funds_rate'][-1]
+    build_ffr.loc[datetime.today().strftime('%Y-%m-%d'), 'federal_funds_rate'] = build_ffr['federal_funds_rate'].iloc[-1]
     build_ffr = build_ffr.resample('D').ffill()
     build_ffr = build_ffr.reset_index(names='Date')
     return build_ffr
@@ -330,11 +330,13 @@ for index, row in date_ranges_df.iterrows():
 
         # Initialize date entry if not already present
         if item_date not in weather_data:
-            weather_data[item_date] = {'date': item_date
-                                    ,'high_temp_nyc': None
-                                    ,'low_temp_nyc': None
-                                    ,'precipitation_PRCP_nyc': None
-                                    ,'precipitation_SNOW_nyc': None}
+            weather_data[item_date] = {
+                'date': item_date
+                ,'high_temp_nyc': None
+                ,'low_temp_nyc': None
+                ,'precipitation_PRCP_nyc': None
+                ,'precipitation_SNOW_nyc': None
+            }
 
         # Update the weather data dictionary based on the datatype
         if datatype == 'TMAX':
@@ -377,9 +379,7 @@ recent_weather_df['timestamp'] = pd.to_datetime(recent_weather_df['timestamp'])
 recent_weather_df['date'] = pd.to_datetime(recent_weather_df['timestamp'].dt.date)
 
 #
-simp_cols = ['date','timestamp','temperature']
-weather_simp = recent_weather_df[simp_cols]
-
+weather_simp = recent_weather_df[['date','timestamp','temperature']]
 weather_simp = weather_simp.groupby('date').agg(low_temp_nyc=('temperature', 'min')
                                                 ,high_temp_nyc=('temperature', 'max')).reset_index()
 
