@@ -70,11 +70,8 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     index_of_month = gt_monthly_raw.copy()
     index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
 
-    if len(index_of_month != 0):
-        index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
-
+    index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
     index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
-    index_of_month['month_end'] = index_of_month['month_start'] + MonthEnd(0)
     index_of_month = index_of_month[['month_start','index_of_month','search_term']]
     index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
 
@@ -238,9 +235,9 @@ def main():
         my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
     else:
         my_kws = set(gt_daily_raw['search_term'])
-        
+
         if not my_kws:
-            logging.error("No keywords found in existing data. Please provide a keyword using --keyword argument.")
+            logging.error("No keywords found in existing data. Provide a keyword using --keyword argument.")
             return
 
     kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
