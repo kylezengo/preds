@@ -86,6 +86,7 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     index_of_day['day_of_week'] = index_of_day['date'].dt.day_name()
     index_of_day['week_start_sun'] = index_of_day["date"].dt.to_period("W-SAT").dt.start_time
     index_of_day['month_start'] = index_of_day["date"] - MonthBegin(1)
+    index_of_day = index_of_day.loc[~index_of_day['isPartial']] # exclude partial data (last day)
 
     gt_adjusted = index_of_day.merge(index_of_week, how='left', on=['week_start_sun','search_term'])
     gt_adjusted = gt_adjusted.merge(index_of_month, how='left', on=['month_start','search_term'])
@@ -132,7 +133,7 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
                 logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
                 time.sleep(71)
 
-def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw):
+def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly, gt_daily):
     """
     Review past requests to determine which data needs to be fetched.
 
@@ -144,8 +145,8 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
     Parameters:
         my_kws (set): Set of keywords to search for.
         params_return_empty_df_raw (list): List of parameters that returned empty data frames.
-        gt_weekly_raw (DataFrame): DataFrame containing raw weekly Google Trends data.
-        gt_daily_raw (DataFrame): DataFrame containing raw daily Google Trends data.
+        gt_weekly (DataFrame): DataFrame containing raw weekly Google Trends data.
+        gt_daily (DataFrame): DataFrame containing raw daily Google Trends data.
 
     Returns:
         tuple: Contains dictionaries for year ranges to do, week ranges to do, and parameters
@@ -159,9 +160,11 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
     kw_yrc = {}
     kw_yrtd = {}
     for kw in my_kws:
-        kw_data = gt_weekly_raw.loc[gt_weekly_raw['search_term']==kw]
+        kw_data = gt_weekly.loc[gt_weekly['search_term']==kw]
 
-        year_ranges_completed = kw_data['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+        year_ranges_completed = kw_data['pytrends_params'].str.extract(
+            r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"'
+        )[0]
         year_ranges_completed = list(set(year_ranges_completed))
 
         # Remove the current year - new weeks in current year may have occurred
@@ -177,6 +180,7 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
         kw_yrtd[kw] = year_ranges_to_do
         logging.info('Need to get %d year ranges for "%s"', len(year_ranges_to_do), kw)
 
+    print('-----------------------------------------------------------------------------')
     # Build week ranges to pull daily data
     week_ranges = []
     current = datetime.strptime("2003-12-28", "%Y-%m-%d")
@@ -188,16 +192,33 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_d
 
     params_return_empty_df_dict ={}
     for kw in my_kws:
-        extracted_dates = [re.search(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"', s) for s in params_return_empty_df_raw if kw in s]
+        extracted_dates = [
+            re.search(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"', s)
+            for s in params_return_empty_df_raw
+            if kw in s
+        ]
         params_return_empty_df_dict[kw] = [match.group(1) for match in extracted_dates]
 
     logging.info('Since 2004 there are %d week ranges', len(week_ranges))
     kw_wrc = {}
     kw_wrtd = {}
     for kw in my_kws:
-        kw_data = gt_daily_raw.loc[gt_daily_raw['search_term']==kw]
+        kw_data = gt_daily.loc[gt_daily['search_term']==kw]
 
-        week_ranges_completed = kw_data['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+        # Exclude partial data (we want to request again to finish incomplete weeks)
+
+        # Can't just exclude the isPartial==True rows,
+        # the week range is still in another row where isPartial==False
+
+        # So, lets get a list of pytrends_params where isPartial==True
+        ptp_partial_t = kw_data.loc[kw_data['isPartial'],'pytrends_params'].unique()
+
+        # Now lets go back and exclude rows where pytrends_params is one of these values
+        kw_data = kw_data.loc[~kw_data['pytrends_params'].isin(ptp_partial_t)]
+
+        week_ranges_completed = kw_data['pytrends_params'].str.extract(
+            r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"'
+        )[0]
         week_ranges_completed = list(set(week_ranges_completed))
 
         kw_wrc[kw] = week_ranges_completed
@@ -229,7 +250,18 @@ def main():
 
     past_weekly_requests = set(gt_weekly_raw['pytrends_params'])
     # params_return_empty_df_raw only in daily for now
-    past_daily_requests = set(list(gt_daily_raw['pytrends_params'])+params_return_empty_df_raw)
+    # Exclude partial data (we want to request again to finish incomplete weeks)
+
+    # Can't just exclude the isPartial==True rows,
+    # the week range is still in another row where isPartial==False
+
+    # So, lets get a list of pytrends_params where isPartial==True
+    ptp_partial_t = gt_daily_raw.loc[gt_daily_raw['isPartial'],'pytrends_params'].unique()
+
+    # Now lets go back and exclude rows where pytrends_params is one of these values
+    gt_daily_raw_adj = gt_daily_raw.loc[~gt_daily_raw['pytrends_params'].isin(ptp_partial_t)]
+
+    past_daily_requests = set(list(gt_daily_raw_adj['pytrends_params'])+params_return_empty_df_raw)
 
     if new_keyword:
         my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
@@ -237,11 +269,14 @@ def main():
         my_kws = set(gt_daily_raw['search_term'])
 
         if not my_kws:
-            logging.error("No keywords found in existing data. Provide a keyword using --keyword argument.")
+            logging.error(
+                "No keywords found in existing data. Provide a keyword using --keyword argument."
+            )
             return
 
+    # Maybe I can remove duplicate logic if replace gt_daily_raw with gt_daily_raw_adj here
     kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
-        my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw
+        my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw 
     )
 
     # Get the interest index by month since 2004
@@ -313,10 +348,10 @@ def main():
 
     # Get the interest index by day for each week for the selected keyword
     params_return_empty_df_new = []
+    dat = []
     for kw in my_kws:
-        try:
-            dat = []
-            for one_week_timeframe in kw_wrtd[kw]:
+        for one_week_timeframe in kw_wrtd[kw]:
+            try:
                 if one_week_timeframe in params_return_empty_df_dict[kw]:
                     continue
 
@@ -330,23 +365,26 @@ def main():
 
                 time.sleep(2)
 
-        finally:
-            if dat:
-                gt_daily_new = pd.concat(dat)
+            except requests.exceptions.RequestException as e:
+                logging.error("RequestException: %s", e) # no break here, worth trying again
+            except ResponseError as e:
+                logging.error("ResponseError: %s", e)
 
-                gt_daily = pd.concat([gt_daily_raw,gt_daily_new])
-                gt_daily = gt_daily.drop_duplicates()
+    if dat:
+        gt_daily_new = pd.concat(dat)
 
-                # does this overwrite????????????
-                gt_daily.to_csv(f'gt_daily_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+        gt_daily = pd.concat([gt_daily_raw,gt_daily_new])
+        gt_daily = gt_daily.drop_duplicates()
 
-            if params_return_empty_df_new:
-                params_return_empty_df = params_return_empty_df_raw+params_return_empty_df_new
-                with open(f"params_return_empty_df_{datetime.today().strftime("%Y%m%d")}.txt", "w", encoding="utf-8") as f:
-                    f.writelines(f"{item}\n" for item in params_return_empty_df)
+        gt_daily.to_csv(f'gt_daily_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
 
-    # Clean up (refresh "raw" files first)
-    gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed, params_return_empty_df_raw = load_existing_data()
+    if params_return_empty_df_new:
+        params_return_empty_df = params_return_empty_df_raw+params_return_empty_df_new
+        with open(f"params_return_empty_df_{datetime.today().strftime("%Y%m%d")}.txt", "w", encoding="utf-8") as f:
+            f.writelines(f"{item}\n" for item in params_return_empty_df)
+
+    # Clean up (refresh "raw" files first) to ensure the latest data is used for the cleanup process
+    gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed, _ = load_existing_data()
 
     gt_adjusted_raw = clean_up(gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed)
 
