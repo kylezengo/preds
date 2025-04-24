@@ -63,12 +63,14 @@ def load_existing_data():
 
     return gt_monthly_loaded, gt_weekly_loaded, gt_daily_loaded, params_return_empty_df_raw
 
-def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
+def clean_up(gt_monthly, gt_weekly, gt_daily):
     """
     Clean up Google Trends data by merging and adjusting indices.
     """
-    index_of_month = gt_monthly_raw.copy()
-    index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"')[0]
+    index_of_month = gt_monthly.copy()
+    index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(
+        r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"'
+    )[0]
 
     index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
     index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
@@ -78,11 +80,11 @@ def clean_up(gt_monthly_raw, gt_weekly_raw, gt_daily_raw):
     # there are duplicate start_date/search_term rows because weeks can be spread across different
     # years smart way to adjust this would be weighted average based on days of week in each year
     # just keeping the first row for now, come back to this later
-    index_of_week = gt_weekly_raw.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
+    index_of_week = gt_weekly.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
     index_of_week = index_of_week[['start_date','index','search_term']]
     index_of_week = index_of_week.rename(columns={'start_date':'week_start_sun','index':'index_of_week'})
 
-    index_of_day = gt_daily_raw.copy()
+    index_of_day = gt_daily.copy()
     index_of_day['day_of_week'] = index_of_day['date'].dt.day_name()
     index_of_day['week_start_sun'] = index_of_day["date"].dt.to_period("W-SAT").dt.start_time
     index_of_day['month_start'] = index_of_day["date"] - MonthBegin(1)
@@ -133,7 +135,7 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
                 logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
                 time.sleep(71)
 
-def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly, gt_daily):
+def review_past_requests(my_kws, params_return_empty_df, gt_weekly, gt_daily):
     """
     Review past requests to determine which data needs to be fetched.
 
@@ -144,7 +146,7 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly, gt_daily
 
     Parameters:
         my_kws (set): Set of keywords to search for.
-        params_return_empty_df_raw (list): List of parameters that returned empty data frames.
+        params_return_empty_df (list): List of parameters that returned empty data frames.
         gt_weekly (DataFrame): DataFrame containing raw weekly Google Trends data.
         gt_daily (DataFrame): DataFrame containing raw daily Google Trends data.
 
@@ -194,7 +196,7 @@ def review_past_requests(my_kws, params_return_empty_df_raw, gt_weekly, gt_daily
     for kw in my_kws:
         extracted_dates = [
             re.search(r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"', s)
-            for s in params_return_empty_df_raw
+            for s in params_return_empty_df
             if kw in s
         ]
         params_return_empty_df_dict[kw] = [match.group(1) for match in extracted_dates]
@@ -276,7 +278,7 @@ def main():
 
     # Maybe I can remove duplicate logic if replace gt_daily_raw with gt_daily_raw_adj here
     kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
-        my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw 
+        my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw
     )
 
     # Get the interest index by month since 2004
@@ -380,7 +382,11 @@ def main():
 
     if params_return_empty_df_new:
         params_return_empty_df = params_return_empty_df_raw+params_return_empty_df_new
-        with open(f"params_return_empty_df_{datetime.today().strftime("%Y%m%d")}.txt", "w", encoding="utf-8") as f:
+        with open(
+            f"params_return_empty_df_{datetime.today().strftime("%Y%m%d")}.txt",
+            "w",
+            encoding="utf-8"
+        ) as f:
             f.writelines(f"{item}\n" for item in params_return_empty_df)
 
     # Clean up (refresh "raw" files first) to ensure the latest data is used for the cleanup process
