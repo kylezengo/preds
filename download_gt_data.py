@@ -25,7 +25,7 @@ new_keyword = args.keyword
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load data
-def load_existing_data():
+def load_existing_data() -> tuple:
     """
     Load existing Google Trends data from CSV files.
 
@@ -63,38 +63,58 @@ def load_existing_data():
 
     return gt_monthly_loaded, gt_weekly_loaded, gt_daily_loaded, params_return_empty_df_raw
 
-def clean_up(gt_monthly, gt_weekly, gt_daily):
+def clean_up(gt_monthly, gt_weekly, gt_daily) -> pd.DataFrame:
     """
     Clean up Google Trends data by merging and adjusting indices.
+
+    Parameters:
+        gt_monthly (DataFrame): Monthly Google Trends data.
+        gt_weekly (DataFrame): Weekly Google Trends data.
+        gt_daily (DataFrame): Daily Google Trends data.
+    Returns:
+        DataFrame: gt_adjusted DataFrame with adjusted indices.
     """
-    index_of_month = gt_monthly.copy()
-    index_of_month['params_date_range'] = index_of_month['pytrends_params'].str.extract(
+    idx_of_month = gt_monthly.copy()
+    idx_of_month['params_date_range'] = idx_of_month['pytrends_params'].str.extract(
         r'"(\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})"'
     )[0]
 
-    index_of_month = index_of_month.loc[index_of_month['params_date_range']==max(index_of_month['params_date_range'])]
-    index_of_month = index_of_month.rename(columns={'start_date':'month_start','index':'index_of_month'})
-    index_of_month = index_of_month[['month_start','index_of_month','search_term']]
-    index_of_month = index_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
+    idx_of_month = idx_of_month.loc[
+        idx_of_month['params_date_range']==max(idx_of_month['params_date_range'])
+    ]
+    idx_of_month = idx_of_month.rename(columns={'start_date':'month_start','index':'idx_of_month'})
+    idx_of_month = idx_of_month[['month_start','idx_of_month','search_term']]
+    idx_of_month = idx_of_month.drop_duplicates(subset=['month_start', 'search_term'], keep='first')
 
     # there are duplicate start_date/search_term rows because weeks can be spread across different
-    # years smart way to adjust this would be weighted average based on days of week in each year
+    # years - smart way to adjust this would be weighted average based on days of week in each year
     # just keeping the first row for now, come back to this later
-    index_of_week = gt_weekly.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
-    index_of_week = index_of_week[['start_date','index','search_term']]
-    index_of_week = index_of_week.rename(columns={'start_date':'week_start_sun','index':'index_of_week'})
+    idx_of_week = gt_weekly.drop_duplicates(subset=['start_date', 'search_term'], keep='first')
+    idx_of_week = idx_of_week[['start_date','index','search_term']]
+    idx_of_week = idx_of_week.rename(columns={'start_date':'week_start_sun','index':'idx_of_week'})
 
-    index_of_day = gt_daily.copy()
-    index_of_day['day_of_week'] = index_of_day['date'].dt.day_name()
-    index_of_day['week_start_sun'] = index_of_day["date"].dt.to_period("W-SAT").dt.start_time
-    index_of_day['month_start'] = index_of_day["date"] - MonthBegin(1)
-    index_of_day = index_of_day.loc[~index_of_day['isPartial']] # exclude partial data (last day)
+    # Daily
+    idx_of_day_nas = gt_daily.loc[gt_daily['request_datetime'].isna()]
+    idx_of_day_nas = idx_of_day_nas.loc[~idx_of_day_nas['isPartial']]
 
-    gt_adjusted = index_of_day.merge(index_of_week, how='left', on=['week_start_sun','search_term'])
-    gt_adjusted = gt_adjusted.merge(index_of_month, how='left', on=['month_start','search_term'])
+    idx_of_day = gt_daily.loc[~gt_daily['request_datetime'].isna()]
+    idx_of_day = idx_of_day.loc[
+        idx_of_day.groupby(['date', 'search_term'])['request_datetime'].idxmax()
+    ]
+    idx_of_day = pd.concat([idx_of_day_nas, idx_of_day], ignore_index=True)
 
-    gt_adjusted['index'] = gt_adjusted['index']*gt_adjusted['index_of_week']/100
-    gt_adjusted['index'] = gt_adjusted['index']*gt_adjusted['index_of_month']/100
+    idx_of_day['day_of_week'] = idx_of_day['date'].dt.day_name()
+    idx_of_day['week_start_sun'] = idx_of_day["date"].dt.to_period("W-SAT").dt.start_time
+    idx_of_day['month_start'] = idx_of_day["date"] - MonthBegin(1)
+    idx_of_day = idx_of_day.loc[~idx_of_day['isPartial']] # exclude partial data (last day)
+
+    # Adjusted
+    gt_adjusted = idx_of_day.merge(idx_of_week, how='left', on=['week_start_sun','search_term'])
+    gt_adjusted = gt_adjusted.merge(idx_of_month, how='left', on=['month_start','search_term'])
+
+    gt_adjusted['index'] = gt_adjusted['index']*gt_adjusted['idx_of_week']/100
+    gt_adjusted['index'] = gt_adjusted['index']*gt_adjusted['idx_of_month']/100
+
     gt_adjusted = gt_adjusted[['date','day_of_week','search_term','index']]
 
     return gt_adjusted
@@ -120,6 +140,7 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
                 resp_df = resp_df.rename(columns={kw:'index'})
                 resp_df['search_term'] = kw
                 resp_df['pytrends_params'] = str(pytrends.token_payload)
+                resp_df['request_datetime'] = datetime.now()
                 df_list.append(resp_df)
 
             logging.info("Success!")
@@ -135,7 +156,7 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
                 logging.error('Sleeping for 71s and then trying attempt %d...',attempt+2)
                 time.sleep(71)
 
-def review_past_requests(my_kws, params_return_empty_df, gt_weekly, gt_daily):
+def review_past_requests(my_kws, params_return_empty_df, gt_weekly, gt_daily) -> tuple:
     """
     Review past requests to determine which data needs to be fetched.
 
@@ -251,7 +272,7 @@ def main():
     pytrends = TrendReq(retries=8, backoff_factor=2)
 
     past_weekly_requests = set(gt_weekly_raw['pytrends_params'])
-    # params_return_empty_df_raw only in daily for now
+    
     # Exclude partial data (we want to request again to finish incomplete weeks)
 
     # Can't just exclude the isPartial==True rows,
@@ -263,7 +284,7 @@ def main():
     # Now lets go back and exclude rows where pytrends_params is one of these values
     gt_daily_raw_adj = gt_daily_raw.loc[~gt_daily_raw['pytrends_params'].isin(ptp_partial_t)]
 
-    past_daily_requests = set(list(gt_daily_raw_adj['pytrends_params'])+params_return_empty_df_raw)
+    past_daily_requests = set(list(gt_daily_raw_adj['pytrends_params'])+params_return_empty_df_raw) # params_return_empty_df_raw only in daily for now
 
     if new_keyword:
         my_kws = set(list(gt_daily_raw['search_term'].unique())+[new_keyword])
@@ -297,6 +318,7 @@ def main():
             df['end_date'] = df['start_date'] + MonthEnd(0)
             df['search_term'] = kw
             df['pytrends_params'] = str(pytrends.token_payload)
+            df['request_datetime'] = datetime.now()
 
             dat.append(df)
 
@@ -330,6 +352,7 @@ def main():
                     weekly_us['end_date'] = weekly_us['start_date'] + pd.Timedelta(days=6)
                     weekly_us['search_term'] = kw
                     weekly_us['pytrends_params'] = str(pytrends.token_payload)
+                    weekly_us['request_datetime'] = datetime.now()
 
                     dat.append(weekly_us)
                 time.sleep(1)
