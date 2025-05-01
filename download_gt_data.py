@@ -272,7 +272,7 @@ def main():
     pytrends = TrendReq(retries=8, backoff_factor=2)
 
     past_weekly_requests = set(gt_weekly_raw['pytrends_params'])
-    
+
     # Exclude partial data (we want to request again to finish incomplete weeks)
 
     # Can't just exclude the isPartial==True rows,

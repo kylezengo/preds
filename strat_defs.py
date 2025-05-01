@@ -53,7 +53,7 @@ class BacktestConfig:
     keras: KerasConfig = field(default_factory=KerasConfig)
 
 # helper functions
-def pred_loop(data, initial_train_period, feats, best_pipeline):
+def pred_loop(data, initial_train_period, feats, best_pipeline) -> tuple:
     """
     Loop through the data and make predictions
 
@@ -95,7 +95,7 @@ def pred_loop(data, initial_train_period, feats, best_pipeline):
 
     return data, model, score
 
-def proba_loop(data, initial_train_period, feats, best_pipeline, proba):
+def proba_loop(data, initial_train_period, feats, best_pipeline, proba) -> tuple:
     """
     Loop through the data and predict probabilities
 
@@ -712,14 +712,16 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
     elif strategy == "Logit":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_logit(data, initial_train_period, config.proba.logit,
-                                         config.logit_warm_start, n_jobs=n_jobs)
+        data, model, score = strat_logit(
+            data, initial_train_period, config.proba.logit, config.logit_warm_start, n_jobs=n_jobs
+        )
 
     elif strategy == "RandomForest":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_random_forest(data, initial_train_period, config.proba.rf,
-                                                 random_state, n_jobs)
+        data, model, score = strat_random_forest(
+            data, initial_train_period, config.proba.rf, random_state, n_jobs
+        )
 
     elif strategy == "KNN":
         initial_train_period = kwargs.get('initial_train_period')
@@ -733,8 +735,9 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
     elif strategy == "XGBoost":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_xgboost(data, initial_train_period,config.proba.xgboost,
-                                           random_state, n_jobs)
+        data, model, score = strat_xgboost(
+            data, initial_train_period,config.proba.xgboost, random_state, n_jobs
+        )
 
     elif strategy == "SVC":
         initial_train_period = kwargs.get('initial_train_period')
