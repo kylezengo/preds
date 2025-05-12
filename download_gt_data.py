@@ -102,11 +102,17 @@ def clean_up(gt_monthly, gt_weekly, gt_daily) -> pd.DataFrame:
         idx_of_day.groupby(['date', 'search_term'])['request_datetime'].idxmax()
     ]
     idx_of_day = pd.concat([idx_of_day_nas, idx_of_day], ignore_index=True)
+    idx_of_day = idx_of_day.loc[~idx_of_day['isPartial']] # exclude partial data (last day)
 
+    # Drop duplicates where one row has a request_datetime and the other is missing request_datetime
+    idx_of_day = idx_of_day.sort_values(by='request_datetime', na_position='last')
+    idx_of_day = idx_of_day.drop_duplicates(
+        subset=['date', 'isPartial', 'search_term', 'pytrends_params'],
+        keep='first'
+    )
     idx_of_day['day_of_week'] = idx_of_day['date'].dt.day_name()
     idx_of_day['week_start_sun'] = idx_of_day["date"].dt.to_period("W-SAT").dt.start_time
     idx_of_day['month_start'] = idx_of_day["date"] - MonthBegin(1)
-    idx_of_day = idx_of_day.loc[~idx_of_day['isPartial']] # exclude partial data (last day)
 
     # Adjusted
     gt_adjusted = idx_of_day.merge(idx_of_week, how='left', on=['week_start_sun','search_term'])
