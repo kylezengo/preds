@@ -262,7 +262,9 @@ def strat_knn(data, initial_train_period, knn_proba, retrain_days, n_jobs=None):
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return proba_loop(data, initial_train_period, feats, search.best_estimator_, knn_proba, retrain_days)
+    return proba_loop(
+        data, initial_train_period, feats, search.best_estimator_, knn_proba, retrain_days
+    )
 
 def strat_linear_svc(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
     """
@@ -792,15 +794,25 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
 
     elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
-        data, model, score = strat_gradient_boost(
-            data, initial_train_period, config.retrain_days,random_state
+        # data, model, score = strat_gradient_boost(
+        #     data, initial_train_period, config.retrain_days,random_state
+        # )
+
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+        }
+        data, model, score = generic_sklearn_strategy(
+                data, initial_train_period, GradientBoostingClassifier, param_grid,
+                config.retrain_days, use_proba=False, proba_threshold=0.5, random_state=None,
+                n_jobs=None
         )
 
     elif strategy == "XGBoost":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strat_xgboost(
-            data, initial_train_period, config.proba.xgboost, config.retrain_days, random_state, n_jobs
+            data, initial_train_period, config.proba.xgboost, config.retrain_days,
+            random_state, n_jobs
         )
 
     elif strategy == "SVC":
