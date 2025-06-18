@@ -49,19 +49,17 @@ class BacktestConfig:
     overbought: int = 70 # RSI overbought threshold
     bko_window: int = 20
     retrain_days: int = 1
-    logit_warm_start: bool = False
     proba: ProbaConfig = field(default_factory=ProbaConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
 
 # helper functions
-def pred_loop(data, initial_train_period, feats, best_pipeline, retrain_days) -> tuple:
+def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
     """
     Loop through the data and make predictions
 
     Parameters:
         data (DataFrame): Stock data with required columns.
         initial_train_period (int): Initial training period.
-        feats (list): List of features to use.
         best_pipeline: Trained pipeline.
         retrain_days (int): Retrain the model every n days.
     
@@ -70,6 +68,8 @@ def pred_loop(data, initial_train_period, feats, best_pipeline, retrain_days) ->
         model: Trained model.
         score: Model accuracy score.
     """
+    feats = [col for col in data.columns if col not in ['Date', 'Target']]
+
     pred_results = []
     for i in range(initial_train_period, len(data)):
         # Retrain only every 'retrain_days' days or on the first iteration
@@ -99,14 +99,13 @@ def pred_loop(data, initial_train_period, feats, best_pipeline, retrain_days) ->
 
     return data, model, score
 
-def proba_loop(data, initial_train_period, feats, best_pipeline, proba, retrain_days) -> tuple:
+def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -> tuple:
     """
     Loop through the data and predict probabilities, retraining the model every n days.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
         initial_train_period (int): Initial training period.
-        feats (list): List of features to use.
         best_pipeline: Trained pipeline.
         proba (float): Probability threshold for Signal = 1.
         retrain_days (int): Retrain the model every n days.
@@ -116,6 +115,8 @@ def proba_loop(data, initial_train_period, feats, best_pipeline, proba, retrain_
         model: Trained model.
         score: Model accuracy score.
     """
+    feats = [col for col in data.columns if col not in ['Date', 'Target']]
+
     proba_results = []
     for i in range(initial_train_period, len(data)):
         # Retrain only every 'retrain_days' days or on the first iteration
@@ -148,7 +149,7 @@ def proba_loop(data, initial_train_period, feats, best_pipeline, proba, retrain_
 #
 def generic_sklearn_strategy(
     data, initial_train_period, model_cls, param_grid, retrain_days,
-    use_proba=False, proba_threshold=0.5, random_state=None, n_jobs=None, **model_kwargs
+    use_proba=False, proba_threshold=0.5, n_jobs=None, **model_kwargs
 ):
     """
     Make predictions using a generic sklearn strategy.
@@ -181,7 +182,7 @@ def generic_sklearn_strategy(
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        model_cls(random_state=random_state, **model_kwargs)
+        model_cls(**model_kwargs)
     )
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
@@ -189,10 +190,10 @@ def generic_sklearn_strategy(
 
     if use_proba:
         return proba_loop(
-            data, initial_train_period, feats, search.best_estimator_, proba_threshold, retrain_days
+            data, initial_train_period, search.best_estimator_, proba_threshold, retrain_days
         )
 
-    return pred_loop(data, initial_train_period, feats, search.best_estimator_, retrain_days)
+    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
 # sklearn models
 def strat_gradient_boost(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
     """
@@ -222,7 +223,7 @@ def strat_gradient_boost(data, initial_train_period, retrain_days, random_state=
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return pred_loop(data, initial_train_period, feats, search.best_estimator_, retrain_days)
+    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
 
 def strat_knn(data, initial_train_period, knn_proba, retrain_days, n_jobs=None):
     """
@@ -262,9 +263,7 @@ def strat_knn(data, initial_train_period, knn_proba, retrain_days, n_jobs=None):
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return proba_loop(
-        data, initial_train_period, feats, search.best_estimator_, knn_proba, retrain_days
-    )
+    return proba_loop(data, initial_train_period, search.best_estimator_, knn_proba, retrain_days)
 
 def strat_linear_svc(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
     """
@@ -308,9 +307,9 @@ def strat_linear_svc(data, initial_train_period, retrain_days, random_state=None
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return pred_loop(data, initial_train_period, feats, search.best_estimator_, retrain_days)
+    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
 
-def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, retrain_days, n_jobs=None):
+def strat_logit(data, initial_train_period, logit_proba, retrain_days, n_jobs=None):
     """
     Predict probabilities with logistic regression
     
@@ -337,7 +336,7 @@ def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, retra
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        LogisticRegression(warm_start=logit_warm_start)
+        LogisticRegression()
     )
 
     # Parameter grid with conditional n_jobs
@@ -362,9 +361,7 @@ def strat_logit(data, initial_train_period, logit_proba, logit_warm_start, retra
     # print(search.best_params_)
     # print(search.best_estimator_.classes_)
 
-    return proba_loop(
-        data, initial_train_period, feats, search.best_estimator_, logit_proba, retrain_days
-    )
+    return proba_loop(data, initial_train_period, search.best_estimator_, logit_proba, retrain_days)
 
 def strat_mlp(data, initial_train_period, mlp_proba, retrain_days, random_state=None, n_jobs=None):
     """
@@ -393,8 +390,7 @@ def strat_mlp(data, initial_train_period, mlp_proba, retrain_days, random_state=
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        MLPClassifier(solver='lbfgs',
-                      random_state=random_state,)
+        MLPClassifier(solver='lbfgs', random_state=random_state)
     )
 
     param_grid = {
@@ -408,9 +404,11 @@ def strat_mlp(data, initial_train_period, mlp_proba, retrain_days, random_state=
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return proba_loop(data, initial_train_period, feats, search.best_estimator_, mlp_proba, retrain_days)
+    return proba_loop(data, initial_train_period, search.best_estimator_, mlp_proba, retrain_days)
 
-def strat_random_forest(data, initial_train_period, rf_proba, retrain_days, random_state=None, n_jobs=None):
+def strat_random_forest(
+        data, initial_train_period, rf_proba, retrain_days, random_state=None, n_jobs=None
+    ):
     """
     Predict probabilities with Random Forest Classifier
     
@@ -442,8 +440,7 @@ def strat_random_forest(data, initial_train_period, rf_proba, retrain_days, rand
     pipeline = make_pipeline(
         StandardScaler(),
         PCA(svd_solver='full'),
-        RandomForestClassifier(random_state=random_state,
-                               n_jobs=n_jobs)
+        RandomForestClassifier(random_state=random_state, n_jobs=n_jobs)
     )
 
     param_grid = {
@@ -454,7 +451,7 @@ def strat_random_forest(data, initial_train_period, rf_proba, retrain_days, rand
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return proba_loop(data, initial_train_period, feats, search.best_estimator_, rf_proba, retrain_days)
+    return proba_loop(data, initial_train_period, search.best_estimator_, rf_proba, retrain_days)
 
 def strat_svc(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
     """
@@ -503,9 +500,11 @@ def strat_svc(data, initial_train_period, retrain_days, random_state=None, n_job
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return pred_loop(data, initial_train_period, feats, search.best_estimator_, retrain_days)
+    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
 
-def strat_svc_proba(data, initial_train_period, svc_proba, retrain_days, random_state=None, n_jobs=None):
+def strat_svc_proba(
+        data, initial_train_period, svc_proba, retrain_days, random_state=None, n_jobs=None
+    ):
     """
     Predict probabilities with SVC
     
@@ -547,7 +546,7 @@ def strat_svc_proba(data, initial_train_period, svc_proba, retrain_days, random_
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return proba_loop(data, initial_train_period, feats, search.best_estimator_, svc_proba, retrain_days)
+    return proba_loop(data, initial_train_period, search.best_estimator_, svc_proba, retrain_days)
 
 # Other models
 def strat_keras(data, initial_train_period, config: KerasConfig, random_state=None):
@@ -667,7 +666,9 @@ def strat_prophet(data, initial_train_period, target, ticker):
 
     return data, model
 
-def strat_xgboost(data, initial_train_period, xgboost_proba, retrain_days, random_state=None, n_jobs=None):
+def strat_xgboost(
+        data, initial_train_period, xgboost_proba, retrain_days, random_state=None, n_jobs=None
+    ):
     """
     Predict probabilities with XGBoost
     
@@ -707,13 +708,14 @@ def strat_xgboost(data, initial_train_period, xgboost_proba, retrain_days, rando
     # print(search.best_params_)
 
     return proba_loop(
-        data, initial_train_period, feats, search.best_estimator_, xgboost_proba, retrain_days
+        data, initial_train_period, search.best_estimator_, xgboost_proba, retrain_days
     )
 
 
 # Backtest
-def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
-                      random_state=None, **kwargs):
+def backtest_strategy(
+        data, strategy, target, ticker, config: BacktestConfig, random_state=None, **kwargs
+    ):
     """
     Backtest various trading strategies.
 
@@ -774,8 +776,7 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         data, model, score = strat_logit(
-            data, initial_train_period, config.proba.logit, config.logit_warm_start,
-            config.retrain_days, n_jobs=n_jobs
+            data, initial_train_period, config.proba.logit, config.retrain_days, n_jobs=n_jobs
         )
 
     elif strategy == "RandomForest":
@@ -792,12 +793,26 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig,
             data, initial_train_period, config.proba.knn, config.retrain_days, n_jobs
         )
 
+    elif strategy == "KNN_2":
+        initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+        }
+        data, model, score = generic_sklearn_strategy(
+                data, initial_train_period, KNeighborsClassifier, param_grid,
+                config.retrain_days, use_proba=True, proba_threshold=config.proba.knn,
+                n_jobs=n_jobs
+        )
+
     elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
-        # data, model, score = strat_gradient_boost(
-        #     data, initial_train_period, config.retrain_days,random_state
-        # )
+        data, model, score = strat_gradient_boost(
+            data, initial_train_period, config.retrain_days,random_state
+        )
 
+    elif strategy == "GradientBoosting_2":
+        initial_train_period = kwargs.get('initial_train_period')
         param_grid = {
             "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
         }
