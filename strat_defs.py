@@ -34,6 +34,7 @@ class ProbaConfig:
     Minimum probabilities for Signal = 1
     """
     # keras: float = 0.5
+    gradb: float = 0.5
     knn: float = 0.5
     logit: float = 0.5
     mlp: float = 0.5
@@ -149,7 +150,7 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
 #
 def generic_sklearn_strategy(
     data, initial_train_period, model_cls, param_grid, retrain_days,
-    use_proba=False, proba_threshold=0.5, n_jobs=None, **model_kwargs
+    proba_threshold=0.5, n_jobs=None, **model_kwargs
 ):
     """
     Make predictions using a generic sklearn strategy.
@@ -188,14 +189,19 @@ def generic_sklearn_strategy(
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
     search.fit(X_train, y_train)
 
-    if use_proba:
+    # Auto-detect proba support if use_proba is None
+    estimator = search.best_estimator_
+    if hasattr(estimator.steps[-1][1], "predict_proba"):
+
         return proba_loop(
-            data, initial_train_period, search.best_estimator_, proba_threshold, retrain_days
+            data, initial_train_period, estimator, proba_threshold, retrain_days
         )
 
-    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
+    return pred_loop(data, initial_train_period, estimator, retrain_days)
 # sklearn models
-def strat_gradient_boost(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
+def strat_gradient_boost(
+        data, initial_train_period, gradb_proba, retrain_days, random_state=None, n_jobs=None
+    ):
     """
     Predict with sklearn's GradientBoostingClassifier 
     Probably better to use XGBoost instead (much faster)
@@ -223,7 +229,7 @@ def strat_gradient_boost(data, initial_train_period, retrain_days, random_state=
     search.fit(X_train, y_train)
     # print(search.best_params_)
 
-    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
+    return proba_loop(data, initial_train_period, search.best_estimator_, gradb_proba, retrain_days)
 
 def strat_knn(data, initial_train_period, knn_proba, retrain_days, n_jobs=None):
     """
@@ -801,14 +807,13 @@ def backtest_strategy(
         }
         data, model, score = generic_sklearn_strategy(
                 data, initial_train_period, KNeighborsClassifier, param_grid,
-                config.retrain_days, use_proba=True, proba_threshold=config.proba.knn,
-                n_jobs=n_jobs
+                config.retrain_days, proba_threshold=config.proba.knn, n_jobs=n_jobs
         )
 
     elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
         data, model, score = strat_gradient_boost(
-            data, initial_train_period, config.retrain_days,random_state
+            data, initial_train_period, config.proba.gradb, config.retrain_days,random_state
         )
 
     elif strategy == "GradientBoosting_2":
@@ -818,8 +823,7 @@ def backtest_strategy(
         }
         data, model, score = generic_sklearn_strategy(
                 data, initial_train_period, GradientBoostingClassifier, param_grid,
-                config.retrain_days, use_proba=False, proba_threshold=0.5, random_state=None,
-                n_jobs=None
+                config.retrain_days, proba_threshold=0.5, random_state=None, n_jobs=None
         )
 
     elif strategy == "XGBoost":
