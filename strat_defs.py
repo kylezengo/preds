@@ -198,6 +198,7 @@ def generic_sklearn_strategy(
         )
 
     return pred_loop(data, initial_train_period, estimator, retrain_days)
+
 # sklearn models
 def strat_gradient_boost(
         data, initial_train_period, gradb_proba, retrain_days, random_state=None, n_jobs=None
@@ -614,8 +615,10 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
         X_test_1, y_test_1 = X[train_size:], y[train_size:]
 
         # Train the Model
-        model.fit(X_train_1, y_train_1, epochs=config.epochs, batch_size=16,
-                  validation_data=(X_test_1, y_test_1), verbose=0)
+        model.fit(
+            X_train_1, y_train_1,
+            epochs=config.epochs, batch_size=16, validation_data=(X_test_1, y_test_1), verbose=0
+        )
 
         # Predict the next day - use the last sequence_length rows of all features as input
         last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length,
