@@ -68,7 +68,7 @@ def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
         tuple:
             - data (DataFrame): Data with strategy signals
             - model: Trained model
-            - score: Model accuracy score
+            - score (float): Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -116,7 +116,7 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
         tuple:
             - data (DataFrame): Data with strategy signals
             - model: Trained model
-            - score: Model accuracy score
+            - score (float): Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -337,9 +337,9 @@ def strat_xgboost(
     
     Returns:
         tuple:
-            - data (DataFrame): Data with strategy signals.
-            - model: Trained XGBoost model.
-            - score: Model accuracy score.
+            - data (DataFrame): Data with strategy signals
+            - model: Trained XGBoost model
+            - score (float): Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -387,9 +387,9 @@ def backtest_strategy(
 
     Returns:
         tuple:
-            - DataFrame: Data with strategy signals and portfolio value.
-            - model: Forecasting model object used for predictions, if applicable.
-            - score: Model accuracy score as a float, if applicable.
+            - date (DataFrame): Data with strategy signals and portfolio value
+            - model: Forecasting model object used for predictions, if applicable
+            - score (float): Model accuracy score, if applicable
     """
     data = data.copy() # Prevent modifying the original DataFrame
 
