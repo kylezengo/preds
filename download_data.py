@@ -76,7 +76,8 @@ def get_sp500_tickers():
         'Travelers+Companies+%28The%29': "The_Travelers_Companies",
         'Walt+Disney+Company+%28The%29': "The_Walt_Disney_Company",
         "O%E2%80%99Reilly+Automotive": "O'Reilly_Auto_Parts",
-        "Campbell%27s+Company+%28The%29": "Campbell%27s"
+        "Campbell%27s+Company+%28The%29": "Campbell%27s",
+        "Trade+Desk+%28The%29": "The_Trade_Desk"
     }
 
     ticker_replacements = {
@@ -230,16 +231,20 @@ for index, row in os_df_date_tick.iterrows():
         missing_dates = pd.date_range(start=prev_date, end=current_date, inclusive='neither')
 
         # Append missing dates and values to dat_list
-        dat_list.append(pd.DataFrame({'os_report_date': prev_date
-                                    ,'date': missing_dates
-                                    ,'ticker': prev_ticker
-                                    ,'outstanding_shares': prev_value}))
+        dat_list.append(pd.DataFrame({
+            'os_report_date': prev_date
+            ,'date': missing_dates
+            ,'ticker': prev_ticker
+            ,'outstanding_shares': prev_value
+        }))
 
     # Add the current row to dat_list
-    dat_list.append(pd.DataFrame({'os_report_date': [current_date]
-                                ,'date': [current_date]
-                                ,'ticker': [current_ticker]
-                                ,'outstanding_shares': [current_value]}))
+    dat_list.append(pd.DataFrame({
+        'os_report_date': [current_date]
+        ,'date': [current_date]
+        ,'ticker': [current_ticker]
+        ,'outstanding_shares': [current_value]
+    }))
 
     # Update previous date and value
     prev_date = current_date

@@ -240,7 +240,8 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
 
     # Pivot
     stocks_w = stocks_df.pivot(
-        index='Date', columns='ticker',
+        index='Date',
+        columns='ticker',
         values=['Open','High','Low','Close','Adj Close','Volume','movement','views']
     )
 

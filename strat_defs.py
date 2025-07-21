@@ -78,8 +78,7 @@ def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
         if (i - initial_train_period) % retrain_days == 0 or i == initial_train_period:
             # Train only on past data up to the current point
             train_data = data.iloc[:i]
-            X_train = train_data[feats]
-            y_train = train_data['Target']
+            X_train, y_train = train_data[feats], train_data['Target']
 
             # Fit the pipeline (scaling + model training)
             best_pipeline.fit(X_train, y_train)
@@ -126,8 +125,7 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
         if (i - initial_train_period) % retrain_days == 0 or i == initial_train_period:
             # Train only on past data up to the current point
             train_data = data.iloc[:i]
-            X_train = train_data[feats]
-            y_train = train_data['Target']
+            X_train, y_train = train_data[feats], train_data['Target']
 
             # Fit the pipeline (scaling + model training)
             best_pipeline.fit(X_train, y_train)
@@ -393,8 +391,7 @@ def backtest_strategy(
     """
     data = data.copy() # Prevent modifying the original DataFrame
 
-    model = None
-    score = None
+    model = score = None
 
     target_ticker = target+"_"+ticker
 
