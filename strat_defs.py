@@ -59,15 +59,16 @@ def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
     Loop through the data and make predictions
 
     Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        best_pipeline: Trained pipeline.
-        retrain_days (int): Retrain the model every n days.
+        data (DataFrame): Stock data with required columns
+        initial_train_period (int): Initial training period
+        best_pipeline: Trained pipeline
+        retrain_days (int): Retrain the model every n days
     
     Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained model.
-        score: Model accuracy score.
+        tuple:
+            - data (DataFrame): Data with strategy signals
+            - model: Trained model
+            - score: Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -105,16 +106,17 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
     Loop through the data and predict probabilities, retraining the model every n days.
 
     Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        best_pipeline: Trained pipeline.
-        proba (float): Probability threshold for Signal = 1.
-        retrain_days (int): Retrain the model every n days.
+        data (DataFrame): Stock data with required columns
+        initial_train_period (int): Initial training period
+        best_pipeline: Trained pipeline
+        proba (float): Probability threshold for Signal = 1
+        retrain_days (int): Retrain the model every n days
 
     Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained model.
-        score: Model accuracy score.
+        tuple:
+            - data (DataFrame): Data with strategy signals
+            - model: Trained model
+            - score: Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -147,29 +149,29 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
 
     return data, model, score
 
-#
+# sklearn models
 def generic_sklearn_strategy(
     data, initial_train_period, model_cls, param_grid, retrain_days,
-    proba_threshold=0.5, n_jobs=None, **model_kwargs
+    proba_threshold=0.5, grid_search_n_jobs=None, **model_kwargs
 ):
     """
     Make predictions using a generic sklearn strategy.
-    
+
     Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        model_cls: Sklearn model class to use (e.g., LogisticRegression, RandomForestClassifier).
-        param_grid (dict): Parameter grid for GridSearchCV.
-        retrain_days (int): Retrain the model every n days.
-        use_proba (bool): Whether to use probability predictions.
-        proba_threshold (float): Probability threshold for Signal = 1.
-        random_state (int, optional): Random state for reproducibility.
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
+        data (DataFrame): Stock data with required columns
+        initial_train_period (int): Initial training period
+        model_cls: Sklearn model class to use (e.g., LogisticRegression, RandomForestClassifier)
+        param_grid (dict): Parameter grid for GridSearchCV
+        retrain_days (int): Retrain the model every n days
+        proba_threshold (float): Probability threshold for Signal = 1
+        random_state (int, optional): Random state for reproducibility
+        n_jobs (int, optional): Number of parallel jobs for GridSearchCV
 
     Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained logistic regression model.
-        score: Model accuracy score.
+        tuple:
+            - data (DataFrame): Data with strategy signals.
+            - model: Trained logistic regression model.
+            - score: Model accuracy score.
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -186,7 +188,7 @@ def generic_sklearn_strategy(
         model_cls(**model_kwargs)
     )
 
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
+    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=grid_search_n_jobs)
     search.fit(X_train, y_train)
 
     # Auto-detect proba support if use_proba is None
@@ -198,362 +200,6 @@ def generic_sklearn_strategy(
         )
 
     return pred_loop(data, initial_train_period, estimator, retrain_days)
-
-# sklearn models
-def strat_gradient_boost(
-        data, initial_train_period, gradb_proba, retrain_days, random_state=None, n_jobs=None
-    ):
-    """
-    Predict with sklearn's GradientBoostingClassifier 
-    Probably better to use XGBoost instead (much faster)
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        GradientBoostingClassifier(random_state=random_state)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, gradb_proba, retrain_days)
-
-def strat_knn(data, initial_train_period, knn_proba, retrain_days, n_jobs=None):
-    """
-    Predict probabilities with K nearest neighbors classifier
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        knn_config:
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
-
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained K nearest neighbors model.
-        score: Model accuracy score.
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        KNeighborsClassifier(n_jobs=n_jobs)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, knn_proba, retrain_days)
-
-def strat_linear_svc(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
-    """
-    Predict with Linear SVC
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        random_state (int, optional): Random state for reproducibility.
-    
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained Linear SVC model.
-        score: Model accuracy score.
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        LinearSVC(random_state=random_state)
-    )
-
-    train_data = data.iloc[:initial_train_period]
-    X_train = train_data.drop(columns=['Date', 'Target'])
-    y_train = train_data['Target']
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-        "linearsvc__C": np.logspace(-4, 4, 9),
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
-
-def strat_logit(data, initial_train_period, logit_proba, retrain_days, n_jobs=None):
-    """
-    Predict probabilities with logistic regression
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        logit_proba (float): Probability threshold for Signal = 1.
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
-
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained logistic regression model.
-        score: Model accuracy score.
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        LogisticRegression()
-    )
-
-    # Parameter grid with conditional n_jobs
-    param_grid = [
-        {  # Case where solver is liblinear → NO n_jobs
-            "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
-            "logisticregression__C": np.logspace(-4, 4, 9),
-            "logisticregression__solver": ["liblinear"],
-            "logisticregression__max_iter": [100, 500, 1000],
-        },
-        {  # Case where solver is lbfgs or saga → USE n_jobs
-            "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
-            "logisticregression__C": np.logspace(-4, 4, 9),
-            "logisticregression__solver": ["lbfgs", "saga"],
-            "logisticregression__max_iter": [100, 500, 1000],
-            "logisticregression__n_jobs": [n_jobs],  # Only set n_jobs for these solvers
-        }
-    ]
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-    # print(search.best_estimator_.classes_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, logit_proba, retrain_days)
-
-def strat_mlp(data, initial_train_period, mlp_proba, retrain_days, random_state=None, n_jobs=None):
-    """
-    Predict probabilities with MLP classifier
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        config: LogitConfig
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
-
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained MLP classifier model.
-        score: Model accuracy score.
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        MLPClassifier(solver='lbfgs', random_state=random_state)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.7,0.8,0.9],
-        "mlpclassifier__alpha": np.logspace(-5, 5, 11),
-        "mlpclassifier__hidden_layer_sizes": [(32, 16), (64, 32, 16)],
-        "mlpclassifier__max_iter": [100,500,1000,5000]
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, mlp_proba, retrain_days)
-
-def strat_random_forest(
-        data, initial_train_period, rf_proba, retrain_days, random_state=None, n_jobs=None
-    ):
-    """
-    Predict probabilities with Random Forest Classifier
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        random_state (int, optional): Random state for reproducibility.
-        njobs (int, optional): Number of parallel jobs for Random Forest.
-    
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained SVC model.
-        score: Model accuracy score.
-    """
-    pipeline = make_pipeline(
-        RandomForestClassifier(random_state=random_state,
-                               n_jobs=n_jobs)
-    )
-
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        RandomForestClassifier(random_state=random_state, n_jobs=n_jobs)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.7,0.8,0.9],
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, rf_proba, retrain_days)
-
-def strat_svc(data, initial_train_period, retrain_days, random_state=None, n_jobs=None):
-    """
-    Predict with SVC
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        random_state (int, optional): Random state for reproducibility.
-    
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained SVC model.
-        score: Model accuracy score.
-    """
-    pipeline = make_pipeline(
-        StandardScaler(),
-        SVC(random_state=random_state)
-    )
-
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        SVC(random_state=random_state)
-    )
-
-    train_data = data.iloc[:initial_train_period]
-    X_train = train_data.drop(columns=['Date', 'Target'])
-    y_train = train_data['Target']
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-        "svc__C": np.logspace(-4, 4, 9),
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return pred_loop(data, initial_train_period, search.best_estimator_, retrain_days)
-
-def strat_svc_proba(
-        data, initial_train_period, svc_proba, retrain_days, random_state=None, n_jobs=None
-    ):
-    """
-    Predict probabilities with SVC
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        svc_proba (float): Probability threshold for Signal = 1.
-        random_state (int, optional): Random state for reproducibility.
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV.
-    
-    Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained SVC probability model.
-        score: Model accuracy score.
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        SVC(probability=True,
-            random_state=random_state)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-        "svc__C": np.logspace(-4, 4, 9),
-        "svc__max_iter": [100,500,1000]
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(data, initial_train_period, search.best_estimator_, svc_proba, retrain_days)
 
 # Other models
 def strat_keras(data, initial_train_period, config: KerasConfig, random_state=None):
@@ -677,21 +323,23 @@ def strat_prophet(data, initial_train_period, target, ticker):
 
 def strat_xgboost(
         data, initial_train_period, xgboost_proba, retrain_days, random_state=None, n_jobs=None
-    ):
+):
     """
     Predict probabilities with XGBoost
     
     Parameters:
-        data (DataFrame): Stock data with required columns.
-        initial_train_period (int): Initial training period.
-        xgboost_proba (float): Probability threshold for Signal = 1.
-        random_state (int, optional): Random state for reproducibility.
-        n_jobs (int, optional): Number of parallel jobs for XGBoost.
+        data (DataFrame): Stock data with required columns
+        initial_train_period (int): Initial training period
+        xgboost_proba (float): Probability threshold for Signal = 1
+        retrain_days (int): Retrain the model every n days
+        random_state (int, optional): Random state for reproducibility
+        n_jobs (int, optional): Number of parallel jobs for XGBoost
     
     Returns:
-        DataFrame: Data with strategy signals.
-        model: Trained XGBoost model.
-        score: Model accuracy score.
+        tuple:
+            - data (DataFrame): Data with strategy signals.
+            - model: Trained XGBoost model.
+            - score: Model accuracy score.
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -731,6 +379,8 @@ def backtest_strategy(
     Parameters:
         data (DataFrame): Stock data with required columns.
         strategy (str): The strategy name ('RSI', 'VWAP', 'Bollinger', etc.)
+        target (str): Target variable to predict (e.g., 'Close')
+        ticker (str): Ticker symbol for the stock.
         config: config info
         random_state (int): 
         **kwargs: Additional parameters for some strategies
@@ -741,10 +391,7 @@ def backtest_strategy(
             - model: Forecasting model object used for predictions, if applicable.
             - score: Model accuracy score as a float, if applicable.
     """
-    data_raw = data.copy()
     data = data.copy() # Prevent modifying the original DataFrame
-
-    og_min_date = min(data_raw['Date'])
 
     model = None
     score = None
@@ -777,57 +424,132 @@ def backtest_strategy(
         data['Signal'] = 1
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
 
-    elif strategy == "Prophet":
-        initial_train_period = kwargs.get('initial_train_period')
-        data, model = strat_prophet(data, initial_train_period, target, ticker)
-
-    elif strategy == "Logit":
+    # sklearn strategies
+    elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_logit(
-            data, initial_train_period, config.proba.logit, config.retrain_days, n_jobs=n_jobs
-        )
-
-    elif strategy == "RandomForest":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_random_forest(
-            data, initial_train_period, config.proba.rf, config.retrain_days, random_state, n_jobs
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, GradientBoostingClassifier, param_grid, config.retrain_days,
+            proba_threshold=config.proba.gradb, grid_search_n_jobs=n_jobs,
+            random_state=random_state # **model_kwargs
         )
 
     elif strategy == "KNN":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_knn(
-            data, initial_train_period, config.proba.knn, config.retrain_days, n_jobs
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, KNeighborsClassifier, param_grid,
+            config.retrain_days, proba_threshold=config.proba.knn, grid_search_n_jobs=n_jobs,
+            n_jobs=n_jobs # **model_kwargs
         )
 
-    elif strategy == "KNN_2":
+    elif strategy == "LinearSVC":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "linearsvc__C": np.logspace(-4, 4, 9),
         }
         data, model, score = generic_sklearn_strategy(
-                data, initial_train_period, KNeighborsClassifier, param_grid,
-                config.retrain_days, proba_threshold=config.proba.knn, n_jobs=n_jobs
+            data, initial_train_period, LinearSVC, param_grid, config.retrain_days,
+            grid_search_n_jobs=n_jobs,
+            random_state=random_state # **model_kwargs
         )
 
-    elif strategy == "GradientBoosting":
+    elif strategy == "Logit":
         initial_train_period = kwargs.get('initial_train_period')
-        data, model, score = strat_gradient_boost(
-            data, initial_train_period, config.proba.gradb, config.retrain_days,random_state
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = [
+            {  # Case where solver is liblinear → NO n_jobs
+                "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+                "logisticregression__C": np.logspace(-4, 4, 9),
+                "logisticregression__solver": ["liblinear"],
+                "logisticregression__max_iter": [100, 500, 1000],
+            },
+            {  # Case where solver is lbfgs or saga → USE n_jobs
+                "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+                "logisticregression__C": np.logspace(-4, 4, 9),
+                "logisticregression__solver": ["lbfgs", "saga"],
+                "logisticregression__max_iter": [100, 500, 1000],
+                "logisticregression__n_jobs": [n_jobs],  # Only set n_jobs for these solvers
+            }
+        ]
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, LogisticRegression, param_grid, config.retrain_days,
+            proba_threshold=config.proba.logit, grid_search_n_jobs=n_jobs,
+            random_state=random_state # **model_kwargs
         )
 
-    elif strategy == "GradientBoosting_2":
+    elif strategy == "MLP":
         initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+            "pca__n_components": [0.6,0.7,0.8,0.9],
+            "mlpclassifier__alpha": np.logspace(-5, 5, 11),
+            "mlpclassifier__hidden_layer_sizes": [(32, 16), (64, 32, 16)],
+            "mlpclassifier__max_iter": [100,500,1000,5000]
         }
         data, model, score = generic_sklearn_strategy(
-                data, initial_train_period, GradientBoostingClassifier, param_grid,
-                config.retrain_days, proba_threshold=0.5, random_state=None, n_jobs=None
+            data, initial_train_period, MLPClassifier, param_grid,
+            config.retrain_days, proba_threshold=config.proba.svc, grid_search_n_jobs=n_jobs,
+            solver='lbfgs', random_state=random_state # **model_kwargs
         )
+
+    elif strategy == "RandomForest":
+        initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, RandomForestClassifier, param_grid,
+            config.retrain_days, proba_threshold=config.proba.rf, grid_search_n_jobs=n_jobs,
+            random_state=random_state, n_jobs=n_jobs # **model_kwargs
+        )
+
+    elif strategy == "SVC":
+        initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "svc__C": np.logspace(-4, 4, 9),
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, SVC, param_grid, config.retrain_days,
+            grid_search_n_jobs=n_jobs,
+            random_state=random_state # **model_kwargs
+        )
+
+    elif strategy == "SVC_proba":
+        initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = {
+            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "svc__C": np.logspace(-4, 4, 9),
+            "svc__max_iter": [100,500,1000]
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, SVC, param_grid,
+            config.retrain_days, proba_threshold=config.proba.svc, grid_search_n_jobs=n_jobs,
+            probability=True, random_state=random_state # **model_kwargs
+        )
+
+    #
+    elif strategy == "Keras":
+        initial_train_period = kwargs.get('initial_train_period')
+        data, model = strat_keras(
+            data, initial_train_period, config=config.keras, random_state=random_state
+        )
+
+    elif strategy == "Prophet":
+        initial_train_period = kwargs.get('initial_train_period')
+        data, model = strat_prophet(data, initial_train_period, target, ticker)
 
     elif strategy == "XGBoost":
         initial_train_period = kwargs.get('initial_train_period')
@@ -837,38 +559,6 @@ def backtest_strategy(
             random_state, n_jobs
         )
 
-    elif strategy == "SVC":
-        initial_train_period = kwargs.get('initial_train_period')
-        data, model, score = strat_svc(
-            data, initial_train_period, config.retrain_days, random_state
-        )
-
-    elif strategy == "SVC_proba":
-        initial_train_period = kwargs.get('initial_train_period')
-        data, model, score = strat_svc_proba(
-            data, initial_train_period, config.proba.svc, config.retrain_days, random_state
-        )
-
-    elif strategy == "LinearSVC":
-        initial_train_period = kwargs.get('initial_train_period')
-        data, model, score = strat_linear_svc(
-            data, initial_train_period, config.retrain_days, random_state
-        )
-
-    elif strategy == "MLP":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_mlp(
-            data, initial_train_period, config.proba.mlp, config.retrain_days,
-            random_state=random_state, n_jobs=n_jobs
-        )
-
-    elif strategy == "Keras":
-        initial_train_period = kwargs.get('initial_train_period')
-        data, model = strat_keras(
-            data, initial_train_period, config=config.keras, random_state=random_state
-        )
-
     elif strategy == "Perfection":
         data['Signal'] = 1
         data.loc[data['Target']==-1, 'Signal'] = -1
@@ -876,18 +566,6 @@ def backtest_strategy(
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
 
-    # Stack on older data where had a training period, assume held stock during that time
-    #   might not this need anymore since rolling calculations applied in prep_data
-    if min(data['Date']) != og_min_date:
-        data_train_period = data_raw.loc[data_raw['Date']<min(data['Date'])].reset_index(drop=True)
-        data_train_period['Signal']=1
-        data = pd.concat([data_train_period,data])
-
     data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
-
-    if ticker != "SPY":
-        initial_train_period = kwargs.get('initial_train_period')
-        data.loc[:initial_train_period, 'Strategy_Return'] = data['Daily_Return_SPY']
-        data.loc[0, 'Strategy_Return'] = np.nan
 
     return data, model, score
