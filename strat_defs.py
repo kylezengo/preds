@@ -147,7 +147,7 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
 
     return data, model, score
 
-# sklearn models
+# sklearn compatible models
 def generic_sklearn_strategy(
     data, initial_train_period, model_cls, param_grid, retrain_days,
     proba_threshold=0.5, grid_search_n_jobs=None, **model_kwargs
@@ -167,9 +167,9 @@ def generic_sklearn_strategy(
 
     Returns:
         tuple:
-            - data (DataFrame): Data with strategy signals.
-            - model: Trained logistic regression model.
-            - score: Model accuracy score.
+            - data (DataFrame): Data with strategy signals
+            - model: Trained model
+            - score: Model accuracy score
     """
     feats = [col for col in data.columns if col not in ['Date', 'Target']]
 
@@ -179,18 +179,38 @@ def generic_sklearn_strategy(
     train_data = data.iloc[:initial_train_period]
     X_train, y_train = train_data[feats], train_data['Target']
 
+    # Skip for tree-based models like XGBClassifier, RandomForest
+    # WIP:
+    # I don't like this... ideally PCA and not PCA would be tried in the grid search
+    # or at least use_pca PCA can be set when calling the function
+    tree_models = [
+        'XGBClassifier',
+        'RandomForestClassifier',
+        'GradientBoostingClassifier',
+        'HistGradientBoostingClassifier'
+    ]
+    use_pca = model_cls.__name__ not in tree_models
+
     # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        model_cls(**model_kwargs)
-    )
+    if use_pca:
+        pipeline = make_pipeline(
+            StandardScaler(),
+            PCA(svd_solver='full'),
+            model_cls(**model_kwargs)
+        )
+    else:
+        pipeline = make_pipeline(
+            StandardScaler(),
+            model_cls(**model_kwargs)
+        )
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=grid_search_n_jobs)
     search.fit(X_train, y_train)
 
-    # Auto-detect proba support if use_proba is None
     estimator = search.best_estimator_
+    print("Best parameters:", search.best_params_)
+
+    # Use proba if estomator supports it
     if hasattr(estimator.steps[-1][1], "predict_proba"):
 
         return proba_loop(
@@ -265,8 +285,9 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
         )
 
         # Predict the next day - use the last sequence_length rows of all features as input
-        last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(1, sequence_length,
-                                                                       len(feats))
+        last_sequence = X_train_0_scaled[-sequence_length:, :].reshape(
+            1, sequence_length, len(feats)
+        )
 
         # Make the prediction
         next_day_prediction = model.predict(last_sequence, verbose=0)[0][0]
@@ -274,16 +295,22 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
         # Store predictions with indices
         proba_results.append((i, next_day_prediction))
 
-        print(f"Date: {max(train_data['Date']).strftime('%Y-%m-%d')}; "
-              f"next_day_pred: {next_day_prediction} "
-              f"Sequence Percent 1: {sum(y_train_0[-sequence_length:])/sequence_length:.0%}")
+        print(
+            f"Date: {max(train_data['Date']).strftime('%Y-%m-%d')}; "
+            f"next_day_pred: {next_day_prediction} "
+            f"Sequence Percent 1: {sum(y_train_0[-sequence_length:])/sequence_length:.0%}"
+        )
 
         # data.loc[data.index[i], 'next_day_prediction'] = next_day_prediction
 
-    proba_df = pd.DataFrame(proba_results,
-                            columns=["index", "next_day_prediction"]).set_index("index")
-    data["next_day_prediction"] = pd.DataFrame(proba_df["next_day_prediction"].to_list(),
-                                               index=proba_df.index)
+    proba_df = pd.DataFrame(
+        proba_results,
+        columns=["index", "next_day_prediction"]
+    ).set_index("index")
+    data["next_day_prediction"] = pd.DataFrame(
+        proba_df["next_day_prediction"].to_list(),
+        index=proba_df.index
+    )
 
     data['Signal'] = np.where(data['next_day_prediction'].fillna(1) > config.proba, 1, 0)
 
@@ -291,7 +318,16 @@ def strat_keras(data, initial_train_period, config: KerasConfig, random_state=No
 
 def strat_prophet(data, initial_train_period, target, ticker):
     """
-    Predict with Facebook Prophet  
+    Predict with Facebook Prophet
+
+    Parameters:
+        data (DataFrame): Stock data with required columns.
+        initial_train_period (int): Initial training period.
+        target (str): Target variable to predict (e.g., 'Close').
+        ticker (str): Ticker symbol for the stock.
+    Returns:
+        DataFrame: Data with strategy signals and predicted prices.
+        model: Trained Prophet model.
     """
     model = Prophet(daily_seasonality=True, yearly_seasonality=True)
 
@@ -318,53 +354,6 @@ def strat_prophet(data, initial_train_period, target, ticker):
         # maybe also try if predicted_price_tomorrow > predicted_price_today
 
     return data, model
-
-def strat_xgboost(
-        data, initial_train_period, xgboost_proba, retrain_days, random_state=None, n_jobs=None
-):
-    """
-    Predict probabilities with XGBoost
-    
-    Parameters:
-        data (DataFrame): Stock data with required columns
-        initial_train_period (int): Initial training period
-        xgboost_proba (float): Probability threshold for Signal = 1
-        retrain_days (int): Retrain the model every n days
-        random_state (int, optional): Random state for reproducibility
-        n_jobs (int, optional): Number of parallel jobs for XGBoost
-    
-    Returns:
-        tuple:
-            - data (DataFrame): Data with strategy signals
-            - model: Trained XGBoost model
-            - score (float): Model accuracy score
-    """
-    feats = [col for col in data.columns if col not in ['Date', 'Target']]
-
-    # Drop rows with missing values due to rolling calculations
-    data = data.dropna().copy()
-
-    train_data = data.iloc[:initial_train_period]
-    X_train, y_train = train_data[feats], train_data['Target']
-
-    # Grid search for best parameters
-    pipeline = make_pipeline(
-        StandardScaler(),
-        PCA(svd_solver='full'),
-        XGBClassifier(random_state=random_state, n_jobs=n_jobs)
-    )
-
-    param_grid = {
-        "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-    }
-
-    search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=n_jobs)
-    search.fit(X_train, y_train)
-    # print(search.best_params_)
-
-    return proba_loop(
-        data, initial_train_period, search.best_estimator_, xgboost_proba, retrain_days
-    )
 
 
 # Backtest
@@ -421,12 +410,12 @@ def backtest_strategy(
         data['Signal'] = 1
         data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
 
-    # sklearn strategies
+    # sklearn strategies (+ XGBoost)
     elif strategy == "GradientBoosting":
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95]
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
         }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, GradientBoostingClassifier, param_grid, config.retrain_days,
@@ -438,8 +427,12 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
+            "kneighborsclassifier__n_neighbors": [3, 5, 7, 11, 21],
+            "kneighborsclassifier__weights": ["uniform", "distance"],
+            "kneighborsclassifier__p": [1, 2]
         }
+
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, KNeighborsClassifier, param_grid,
             config.retrain_days, proba_threshold=config.proba.knn, grid_search_n_jobs=n_jobs,
@@ -450,7 +443,7 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
             "linearsvc__C": np.logspace(-4, 4, 9),
         }
         data, model, score = generic_sklearn_strategy(
@@ -464,13 +457,13 @@ def backtest_strategy(
         n_jobs = kwargs.get('n_jobs')
         param_grid = [
             {  # Case where solver is liblinear → NO n_jobs
-                "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+                "pca__n_components": [0.6, 0.7, 0.8, 0.9],
                 "logisticregression__C": np.logspace(-4, 4, 9),
                 "logisticregression__solver": ["liblinear"],
                 "logisticregression__max_iter": [100, 500, 1000],
             },
             {  # Case where solver is lbfgs or saga → USE n_jobs
-                "pca__n_components": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+                "pca__n_components": [0.6, 0.7, 0.8, 0.9],
                 "logisticregression__C": np.logspace(-4, 4, 9),
                 "logisticregression__solver": ["lbfgs", "saga"],
                 "logisticregression__max_iter": [100, 500, 1000],
@@ -487,7 +480,7 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.7,0.8,0.9],
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
             "mlpclassifier__alpha": np.logspace(-5, 5, 11),
             "mlpclassifier__hidden_layer_sizes": [(32, 16), (64, 32, 16)],
             "mlpclassifier__max_iter": [100,500,1000,5000]
@@ -502,7 +495,7 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
         }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, RandomForestClassifier, param_grid,
@@ -514,8 +507,10 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-            "svc__C": np.logspace(-4, 4, 9),
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
+            "svc__C": np.logspace(-4, 4, 5),
+            "svc__kernel": ["linear", "rbf", "poly"],
+            "svc__gamma": ["scale", "auto"]
         }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, SVC, param_grid, config.retrain_days,
@@ -527,14 +522,31 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         n_jobs = kwargs.get('n_jobs')
         param_grid = {
-            "pca__n_components": [0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95],
-            "svc__C": np.logspace(-4, 4, 9),
-            "svc__max_iter": [100,500,1000]
+            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
+            "svc__C": np.logspace(-4, 4, 5),
+            "svc__kernel": ["linear", "rbf", "poly"],
+            "svc__gamma": ["scale", "auto"],
+            "svc__max_iter": [500, 1000]
         }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, SVC, param_grid,
             config.retrain_days, proba_threshold=config.proba.svc, grid_search_n_jobs=n_jobs,
             probability=True, random_state=random_state # **model_kwargs
+        )
+
+    elif strategy == "XGBoost":
+        initial_train_period = kwargs.get('initial_train_period')
+        n_jobs = kwargs.get('n_jobs')
+        param_grid = {
+            "xgbclassifier__max_depth": [3, 6],
+            "xgbclassifier__subsample": [0.8, 1.0],
+            "xgbclassifier__colsample_bytree": [0.8, 1.0],
+            "xgbclassifier__reg_alpha": [0, 0.1, 1],
+        }
+        data, model, score = generic_sklearn_strategy(
+            data, initial_train_period, XGBClassifier, param_grid,
+            config.retrain_days, proba_threshold=config.proba.xgboost, grid_search_n_jobs=n_jobs,
+            random_state=random_state, n_jobs=n_jobs # **model_kwargs
         )
 
     #
@@ -548,17 +560,9 @@ def backtest_strategy(
         initial_train_period = kwargs.get('initial_train_period')
         data, model = strat_prophet(data, initial_train_period, target, ticker)
 
-    elif strategy == "XGBoost":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        data, model, score = strat_xgboost(
-            data, initial_train_period, config.proba.xgboost, config.retrain_days,
-            random_state, n_jobs
-        )
-
     elif strategy == "Perfection":
         data['Signal'] = 1
-        data.loc[data['Target']==-1, 'Signal'] = -1
+        data.loc[data['Target']==0, 'Signal'] = 0
 
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")

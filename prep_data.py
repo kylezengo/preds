@@ -250,8 +250,10 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
 
     return stocks_w
 
-def prep_data(stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, config: IndicatorConfig,
-              drop_tickers=None):
+def prep_data(
+        stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted,
+        config: IndicatorConfig, drop_tickers=None
+):
     """
     Prepare data for forecasting strategies (add some extra features).
 
