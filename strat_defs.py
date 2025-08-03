@@ -359,7 +359,7 @@ def strat_prophet(data, initial_train_period, target, ticker):
 # Backtest
 def backtest_strategy(
         data, strategy, target, ticker, config: BacktestConfig, random_state=None, **kwargs
-    ):
+    ) -> tuple:
     """
     Backtest various trading strategies.
 

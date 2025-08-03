@@ -1,7 +1,6 @@
 """This module builds prepd_data"""
 
 import glob
-import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -52,24 +51,24 @@ def load_data():
     """
     Load data from CSV files.
     """
-    stocks_df_files = glob.glob('stocks_df_*.csv')
-    stocks_df_latest = max(stocks_df_files, key=os.path.getctime)
+    stocks_df_files = glob.glob('data/stocks_df_*.csv')
+    stocks_df_latest = max(stocks_df_files, key=lambda f: f.split("_")[2])
     stocks_df_raw = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
-    wiki_pageviews_files = glob.glob('wiki_pageviews_*.csv')
-    wiki_pageviews_latest = max(wiki_pageviews_files, key=os.path.getctime)
+    wiki_pageviews_files = glob.glob('data/wiki_pageviews_*.csv')
+    wiki_pageviews_latest = max(wiki_pageviews_files, key=lambda f: f.split("_")[2])
     wiki_pageviews = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
 
-    ffr_files = glob.glob('ffr_*.csv')
-    ffr_latest = max(ffr_files, key=os.path.getctime)
+    ffr_files = glob.glob('data/ffr_*.csv')
+    ffr_latest = max(ffr_files, key=lambda f: f.split("_")[1])
     ffr = pd.read_csv(ffr_latest, parse_dates=['Date'])
 
-    weather_files = glob.glob('weather_*.csv')
-    weather_latest = max(weather_files, key=os.path.getctime)
+    weather_files = glob.glob('data/weather_*.csv')
+    weather_latest = max(weather_files, key=lambda f: f.split("_")[1])
     weather = pd.read_csv(weather_latest, parse_dates=['date'])
 
-    gt_adjusted_files = glob.glob('gt_adjusted_*.csv')
-    gt_adjusted_latest = max(gt_adjusted_files, key=os.path.getctime)
+    gt_adjusted_files = glob.glob('data/gt_adjusted_*.csv')
+    gt_adjusted_latest = max(gt_adjusted_files, key=lambda f: f.split("_")[2])
     gt_adjusted = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
 
     return stocks_df_raw, wiki_pageviews, ffr, weather, gt_adjusted

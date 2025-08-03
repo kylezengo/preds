@@ -1,7 +1,6 @@
 """Create an interactive plot in a browser window"""
 
 import glob
-import os
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,8 +12,8 @@ import prep_data # custom functions
 app = Dash()
 
 # Load data
-stocks_df_files = glob.glob('stocks_df_*.csv')
-stocks_df_latest = max(stocks_df_files, key=os.path.getctime)
+stocks_df_files = glob.glob('data/stocks_df_*.csv')
+stocks_df_latest = max(stocks_df_files, key=lambda f: f.split("_")[2])
 stocks_df = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
 

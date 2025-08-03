@@ -27,8 +27,8 @@ def load_existing_data():
     """
     Load existing weather data from CSV files.
     """
-    weather_df_files = glob.glob('weather_df_*.csv')
-    weather_df_latest = max(weather_df_files, key=os.path.getctime)
+    weather_df_files = glob.glob('data/weather_df_*.csv')
+    weather_df_latest = max(weather_df_files, key=lambda f: f.split("_")[2])
     weather_df_loaded = pd.read_csv(weather_df_latest, parse_dates=['date'])
 
     return weather_df_loaded
@@ -161,7 +161,7 @@ def save_data_to_csv(dic_of_dfs):
     """Save data to CSV files"""
     today_str = datetime.today().strftime("%Y%m%d")
     for df_name, final_df in dic_of_dfs.items():
-        final_df.to_csv(f"{df_name}_{today_str}.csv", index=False)
+        final_df.to_csv(f"data/{df_name}_{today_str}.csv", index=False)
 
 
 sp500_dataframe = get_sp500_tickers()
