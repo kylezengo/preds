@@ -32,23 +32,23 @@ def load_existing_data() -> tuple:
     Returns:
         tuple: DataFrames for monthly, weekly, and daily data.
     """
-    gt_monthly_files = glob.glob('gt_monthly_*.csv')
+    gt_monthly_files = glob.glob('data/gt_monthly_*.csv')
     if gt_monthly_files:
-        gt_monthly_latest = max(gt_monthly_files, key=os.path.getctime)
+        gt_monthly_latest = max(gt_monthly_files, key=lambda f: f.split("_")[2])
         gt_monthly_loaded = pd.read_csv(gt_monthly_latest, parse_dates=['start_date', 'end_date'])
     else:
         gt_monthly_loaded = pd.DataFrame(columns=['start_date','index','isPartial','end_date','search_term','pytrends_params'])
 
-    gt_weekly_files = glob.glob('gt_weekly_*.csv')
+    gt_weekly_files = glob.glob('data/gt_weekly_*.csv')
     if gt_weekly_files:
-        gt_weekly_latest = max(gt_weekly_files, key=os.path.getctime)
+        gt_weekly_latest = max(gt_weekly_files, key=lambda f: f.split("_")[2])
         gt_weekly_loaded = pd.read_csv(gt_weekly_latest, parse_dates=['start_date','end_date'])
     else:
         gt_weekly_loaded = pd.DataFrame(columns=['start_date','index','isPartial','end_date','search_term','pytrends_params'])
 
-    gt_daily_files = glob.glob('gt_daily_*.csv')
+    gt_daily_files = glob.glob('data/gt_daily_*.csv')
     if gt_daily_files:
-        gt_daily_latest = max(gt_daily_files, key=os.path.getctime)
+        gt_daily_latest = max(gt_daily_files, key=lambda f: f.split("_")[2])
         gt_daily_loaded = pd.read_csv(gt_daily_latest, parse_dates=['date'])
     else:
         gt_daily_loaded = pd.DataFrame(columns=['date','index','isPartial','search_term','pytrends_params'])
@@ -273,6 +273,8 @@ def main():
     """
     Main function to download Google Trends data
     """
+    today_yyyymmdd = datetime.today().strftime("%Y%m%d")
+
     gt_monthly_raw, gt_weekly_raw, gt_daily_raw, params_return_empty_df_raw = load_existing_data()
 
     pytrends = TrendReq(retries=8, backoff_factor=2)
@@ -339,7 +341,7 @@ def main():
         gt_monthly = pd.concat([gt_monthly_raw,gt_monthly_new])
         gt_monthly = gt_monthly.drop_duplicates()
 
-        gt_monthly.to_csv(f'gt_monthly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+        gt_monthly.to_csv(f'data/gt_monthly_{today_yyyymmdd}.csv', index=False)
 
     # Get the interest index by week for each year for the selected keywords
     # past_weekly_requests_ncy (not current year)
@@ -375,7 +377,7 @@ def main():
         gt_weekly = pd.concat([gt_weekly_raw,gt_weekly_new])
         gt_weekly = gt_weekly.drop_duplicates()
 
-        gt_weekly.to_csv(f'gt_weekly_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+        gt_weekly.to_csv(f'data/gt_weekly_{today_yyyymmdd}.csv', index=False)
 
     # Get the interest index by day for each week for the selected keyword
     params_return_empty_df_new = []
@@ -407,12 +409,12 @@ def main():
         gt_daily = pd.concat([gt_daily_raw,gt_daily_new])
         gt_daily = gt_daily.drop_duplicates()
 
-        gt_daily.to_csv(f'gt_daily_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+        gt_daily.to_csv(f'data/gt_daily_{today_yyyymmdd}.csv', index=False)
 
     if params_return_empty_df_new:
         params_return_empty_df = params_return_empty_df_raw+params_return_empty_df_new
         with open(
-            f"params_return_empty_df_{datetime.today().strftime("%Y%m%d")}.txt",
+            f"data/params_return_empty_df_{today_yyyymmdd}.txt",
             "w",
             encoding="utf-8"
         ) as f:
@@ -423,7 +425,7 @@ def main():
 
     gt_adjusted_raw = clean_up(gt_monthly_refreshed, gt_weekly_refreshed, gt_daily_refreshed)
 
-    gt_adjusted_raw.to_csv(f'gt_adjusted_{datetime.today().strftime("%Y%m%d")}.csv', index=False)
+    gt_adjusted_raw.to_csv(f'data/gt_adjusted_{today_yyyymmdd}.csv', index=False)
 
 if __name__ == "__main__":
     main()
