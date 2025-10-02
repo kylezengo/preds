@@ -21,7 +21,7 @@ wiki_user_agent = os.getenv("wiki_user_agent")
 WIKI_SDATE = "20150701" # earliest date is"20150701"
 WIKI_BASE_URL = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/"
 START_DATE = "1993-01-29" # SPY launched on 1993-01-22 ... first data is January 29?
-end_date = datetime.today().strftime('%Y-%m-%d')
+end_date = today_iso_str = datetime.today().strftime('%Y-%m-%d')
 
 def load_existing_data():
     """
@@ -39,7 +39,7 @@ def get_federal_funds_rate():
     """
     fred = Fred(api_key=fred_api_key)
     build_ffr = fred.get_series('FEDFUNDS').to_frame(name='federal_funds_rate')
-    build_ffr.loc[datetime.today().strftime('%Y-%m-%d'), 'federal_funds_rate'] = build_ffr['federal_funds_rate'].iloc[-1]
+    build_ffr.loc[today_iso_str, 'federal_funds_rate'] = build_ffr['federal_funds_rate'].iloc[-1]
     build_ffr = build_ffr.resample('D').ffill()
     build_ffr = build_ffr.reset_index(names='Date')
     return build_ffr
@@ -48,7 +48,11 @@ def get_sp500_tickers():
     """
     Get list of S&P 500 tickers from Wikipedia page
     """
-    sp_wiki = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", timeout=20)
+    wiki_headers = {
+        "User-Agent": wiki_user_agent
+    }
+
+    sp_wiki = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=wiki_headers, timeout=20)
 
     build_sp_df = pd.read_html(sp_wiki.content)[0]
 
@@ -178,7 +182,7 @@ for i in selected_tickers:
     data = yf.download(
         i,
         start=START_DATE,
-        end=end_date,
+        end=today_iso_str,
         auto_adjust=False, # ?
         progress=False
     )
@@ -195,7 +199,7 @@ stocks_df = stocks_df.rename_axis(None, axis=1)
 dat_list = []
 for i in sp500_tickers:
     if yf.Ticker(i).get_shares_full() is not None:
-        df = yf.Ticker(i).get_shares_full(start=START_DATE, end=end_date)
+        df = yf.Ticker(i).get_shares_full(start=START_DATE, end=today_iso_str)
         df = pd.DataFrame(df)
         df['ticker'] = i
         dat_list.append(df)
@@ -273,18 +277,20 @@ while current_start_date <= end_date_dt:
     current_end_date = current_start_date + timedelta(days=29)
     current_end_date = min(current_end_date, end_date_dt)
 
-    date_ranges.append({'start_date': current_start_date.strftime("%Y-%m-%d")
-                        ,'end_date': current_end_date.strftime("%Y-%m-%d")})
+    date_ranges.append({
+        'start_date': current_start_date.strftime("%Y-%m-%d")
+        ,'end_date': current_end_date.strftime("%Y-%m-%d")
+    })
 
     current_start_date = current_end_date + timedelta(days=1)
 
 date_ranges_df = pd.DataFrame(date_ranges)
 
-one_year_ago = (datetime.now()-timedelta(days=365)).strftime("%Y-%m-%d") # to string
-last_hist_data_date = max(weather_df_hist['date']).strftime("%Y-%m-%d") # to string
+one_year_ago = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+last_hist_data_date = max(weather_df_hist['date']).strftime("%Y-%m-%d")
 
 date_ranges_df = date_ranges_df.loc[
-    date_ranges_df['end_date'] >= min(one_year_ago,last_hist_data_date)
+    date_ranges_df['end_date'] >= min(one_year_ago, last_hist_data_date)
 ]
 date_ranges_df = date_ranges_df.reset_index(drop=True)
 

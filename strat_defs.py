@@ -158,12 +158,11 @@ def generic_sklearn_strategy(
     Parameters:
         data (DataFrame): Stock data with required columns
         initial_train_period (int): Initial training period
-        model_cls: Sklearn model class to use (e.g., LogisticRegression, RandomForestClassifier)
+        model_cls: Sklearn model class to use (e.g. LogisticRegression)
         param_grid (dict): Parameter grid for GridSearchCV
         retrain_days (int): Retrain the model every n days
         proba_threshold (float): Probability threshold for Signal = 1
-        random_state (int, optional): Random state for reproducibility
-        n_jobs (int, optional): Number of parallel jobs for GridSearchCV
+        grid_search_n_jobs (int, optional): Number of parallel jobs for GridSearchCV
 
     Returns:
         tuple:
@@ -357,9 +356,7 @@ def strat_prophet(data, initial_train_period, target, ticker):
 
 
 # Backtest
-def backtest_strategy(
-        data, strategy, target, ticker, config: BacktestConfig, random_state=None, **kwargs
-    ) -> tuple:
+def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **kwargs) -> tuple:
     """
     Backtest various trading strategies.
 
@@ -378,9 +375,17 @@ def backtest_strategy(
             - model: Forecasting model object used for predictions, if applicable
             - score (float): Model accuracy score, if applicable
     """
+    initial_train_period = kwargs.get('initial_train_period')
+    n_jobs = kwargs.get('n_jobs')
+    random_state = kwargs.get('random_state')
+
     data = data.copy() # Prevent modifying the original DataFrame
 
     model = score = None
+
+    param_grid = {
+        "pca__n_components": [0.6, 0.7, 0.8, 0.9],
+    }
 
     target_ticker = target+"_"+ticker
 
@@ -412,49 +417,36 @@ def backtest_strategy(
 
     # sklearn strategies (+ XGBoost)
     elif strategy == "GradientBoosting":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-        }
         data, model, score = generic_sklearn_strategy(
-            data, initial_train_period, GradientBoostingClassifier, param_grid, config.retrain_days,
-            proba_threshold=config.proba.gradb, grid_search_n_jobs=n_jobs,
+            data, initial_train_period, GradientBoostingClassifier, param_grid,
+            config.retrain_days, proba_threshold=config.proba.gradb,
+            grid_search_n_jobs=n_jobs,
             random_state=random_state # **model_kwargs
         )
 
     elif strategy == "KNN":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-            "kneighborsclassifier__n_neighbors": [3, 5, 7, 11, 21],
-            "kneighborsclassifier__weights": ["uniform", "distance"],
-            "kneighborsclassifier__p": [1, 2]
-        }
+        param_grid["kneighborsclassifier__n_neighbors"] = [3, 5, 7, 11, 21]
+        param_grid["kneighborsclassifier__weights"] = ["uniform", "distance"]
+        param_grid["kneighborsclassifier__p"] = [1, 2]
 
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, KNeighborsClassifier, param_grid,
-            config.retrain_days, proba_threshold=config.proba.knn, grid_search_n_jobs=n_jobs,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.knn,
+            grid_search_n_jobs=n_jobs,
             n_jobs=n_jobs # **model_kwargs
         )
 
     elif strategy == "LinearSVC":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-            "linearsvc__C": np.logspace(-4, 4, 9),
-        }
+        param_grid["linearsvc__C"] = np.logspace(-4, 4, 9)
+
         data, model, score = generic_sklearn_strategy(
-            data, initial_train_period, LinearSVC, param_grid, config.retrain_days,
+            data, initial_train_period, LinearSVC, param_grid,
+            retrain_days=config.retrain_days,
             grid_search_n_jobs=n_jobs,
             random_state=random_state # **model_kwargs
         )
 
     elif strategy == "Logit":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
         param_grid = [
             {  # Case where solver is liblinear → NO n_jobs
                 "pca__n_components": [0.6, 0.7, 0.8, 0.9],
@@ -471,72 +463,58 @@ def backtest_strategy(
             }
         ]
         data, model, score = generic_sklearn_strategy(
-            data, initial_train_period, LogisticRegression, param_grid, config.retrain_days,
-            proba_threshold=config.proba.logit, grid_search_n_jobs=n_jobs,
+            data, initial_train_period, LogisticRegression, param_grid,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.logit,
+            grid_search_n_jobs=n_jobs,
             random_state=random_state # **model_kwargs
         )
 
     elif strategy == "MLP":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-            "mlpclassifier__alpha": np.logspace(-5, 5, 11),
-            "mlpclassifier__hidden_layer_sizes": [(32, 16), (64, 32, 16)],
-            "mlpclassifier__max_iter": [100,500,1000,5000]
-        }
+        param_grid["mlpclassifier__alpha"] = np.logspace(-5, 5, 11)
+        param_grid["mlpclassifier__hidden_layer_sizes"] = [(32, 16), (64, 32, 16)]
+        param_grid["mlpclassifier__max_iter"] = [100,500,1000,5000]
+
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, MLPClassifier, param_grid,
-            config.retrain_days, proba_threshold=config.proba.svc, grid_search_n_jobs=n_jobs,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.svc,
+            grid_search_n_jobs=n_jobs,
             solver='lbfgs', random_state=random_state # **model_kwargs
         )
 
     elif strategy == "RandomForest":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-        }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, RandomForestClassifier, param_grid,
-            config.retrain_days, proba_threshold=config.proba.rf, grid_search_n_jobs=n_jobs,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.rf,
+            grid_search_n_jobs=n_jobs,
             random_state=random_state, n_jobs=n_jobs # **model_kwargs
         )
 
     elif strategy == "SVC":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-            "svc__C": np.logspace(-4, 4, 5),
-            "svc__kernel": ["linear", "rbf", "poly"],
-            "svc__gamma": ["scale", "auto"]
-        }
+        param_grid["svc__C"] = np.logspace(-4, 4, 5)
+        param_grid["svc__kernel"] = ["linear", "rbf", "poly"]
+        param_grid["svc__gamma"] = ["scale", "auto"]
+
         data, model, score = generic_sklearn_strategy(
-            data, initial_train_period, SVC, param_grid, config.retrain_days,
+            data, initial_train_period, SVC, param_grid,
+            retrain_days=config.retrain_days,
             grid_search_n_jobs=n_jobs,
             random_state=random_state # **model_kwargs
         )
 
     elif strategy == "SVC_proba":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
-        param_grid = {
-            "pca__n_components": [0.6, 0.7, 0.8, 0.9],
-            "svc__C": np.logspace(-4, 4, 5),
-            "svc__kernel": ["linear", "rbf", "poly"],
-            "svc__gamma": ["scale", "auto"],
-            "svc__max_iter": [500, 1000]
-        }
+        param_grid["svc__C"] = np.logspace(-4, 4, 5)
+        param_grid["svc__kernel"] = ["linear", "rbf", "poly"]
+        param_grid["svc__gamma"] = ["scale", "auto"]
+        param_grid["svc__max_iter"] = [500, 1000]
+
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, SVC, param_grid,
-            config.retrain_days, proba_threshold=config.proba.svc, grid_search_n_jobs=n_jobs,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.svc,
+            grid_search_n_jobs=n_jobs,
             probability=True, random_state=random_state # **model_kwargs
         )
 
     elif strategy == "XGBoost":
-        initial_train_period = kwargs.get('initial_train_period')
-        n_jobs = kwargs.get('n_jobs')
         param_grid = {
             "xgbclassifier__max_depth": [3, 6],
             "xgbclassifier__subsample": [0.8, 1.0],
@@ -545,19 +523,18 @@ def backtest_strategy(
         }
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, XGBClassifier, param_grid,
-            config.retrain_days, proba_threshold=config.proba.xgboost, grid_search_n_jobs=n_jobs,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.xgboost,
+            grid_search_n_jobs=n_jobs,
             random_state=random_state, n_jobs=n_jobs # **model_kwargs
         )
 
     #
     elif strategy == "Keras":
-        initial_train_period = kwargs.get('initial_train_period')
         data, model = strat_keras(
             data, initial_train_period, config=config.keras, random_state=random_state
         )
 
     elif strategy == "Prophet":
-        initial_train_period = kwargs.get('initial_train_period')
         data, model = strat_prophet(data, initial_train_period, target, ticker)
 
     elif strategy == "Perfection":
