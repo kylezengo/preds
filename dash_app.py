@@ -87,8 +87,10 @@ app.layout = html.Div(
      Input('bstd-input', 'value')]
 )
 
-def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_window, 
-                 bollinger_window, bollinger_num_std):
+def update_graph(
+    ticker, short_window, long_window, oversold, overbought, rsi_window,
+    bollinger_window, bollinger_num_std
+):
     """
     Update graph
     """
@@ -136,8 +138,10 @@ def update_graph(ticker, short_window, long_window, oversold, overbought, rsi_wi
                       label={'text':f'Overbought ({overbought})','textposition':"end"},
                       row=2, col=1)
 
-    fig_sub.update_layout(title=f'Daily {ticker} Adj Close',
-                          legend={'yanchor':"top",'y': 0.98,'xanchor':"left",'x':0.01})
+    # fig_sub.update_layout(title=f'Daily {ticker} Adj Close',
+    #                       legend={'yanchor':"top",'y': 0.98,'xanchor':"left",'x':0.01})
+
+    fig_sub.update_layout(title=f'Daily {ticker} Adj Close')
 
     return fig_sub
 
