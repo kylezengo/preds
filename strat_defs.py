@@ -209,7 +209,7 @@ def generic_sklearn_strategy(
     estimator = search.best_estimator_
     print("Best parameters:", search.best_params_)
 
-    # Use proba if estomator supports it
+    # Use proba if estimator supports it
     if hasattr(estimator.steps[-1][1], "predict_proba"):
 
         return proba_loop(

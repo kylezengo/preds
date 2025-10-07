@@ -18,8 +18,8 @@ stocks_df = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
 
 # App layout
-app.layout = html.Div(
-    [
+app.layout = html.Div([
+    html.Div([
         html.Label("Ticker"),
         dcc.Input(
             id='ticker-input',
@@ -67,24 +67,23 @@ app.layout = html.Div(
             type='number',
             value=2
         ),
-        dcc.Graph(
-            id='my_fig',
-            style={'height': '100%'}
-        )
-    ],
-    style={'height': '100vh'},
-)
+        ], style={'fontFamily': 'Arial', 'width': '200px', 'padding': '20px',
+                  'display': 'flex',  'flexDirection': 'column', 'flexShrink': 0}),
+        html.Div([
+            dcc.Graph(id='my_fig', style={'width': '100%', 'height': '100%'})
+        ], style={'flexGrow': 1, 'padding': '20px','height': '100vh'})
+], style={'display': 'flex', 'alignItems': 'flex-start','height': '100vh'})
 
 @app.callback(
     Output('my_fig', 'figure'),
-    [Input('ticker-input', 'value'),
-     Input('short_window-input', 'value'),
-     Input('long_window-input', 'value'),
-     Input('oversold-input', 'value'),
-     Input('overbought-input', 'value'),
-     Input('rsi_window-input', 'value'),
-     Input('bma-input', 'value'),
-     Input('bstd-input', 'value')]
+    Input('ticker-input', 'value'),
+    Input('short_window-input', 'value'),
+    Input('long_window-input', 'value'),
+    Input('oversold-input', 'value'),
+    Input('overbought-input', 'value'),
+    Input('rsi_window-input', 'value'),
+    Input('bma-input', 'value'),
+    Input('bstd-input', 'value')
 )
 
 def update_graph(
