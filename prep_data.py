@@ -1,6 +1,7 @@
 """This module builds prepd_data"""
 
 import glob
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -54,46 +55,59 @@ def load_data():
     stocks_df_files = glob.glob('data/stocks_df_*.csv')
     if not stocks_df_files:
         raise FileNotFoundError("No stocks_df files found in data/")
-    stocks_df_latest = max(stocks_df_files, key=lambda f: f.split("_")[2])
-    stocks_df_raw = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
+    def _latest(files):
+        return max(files, key=lambda f: f.split("_")[-1])
+
+    stocks_df_raw = pd.read_csv(_latest(stocks_df_files), parse_dates=['Date'])
 
     wiki_pageviews_files = glob.glob('data/wiki_pageviews_*.csv')
     if not wiki_pageviews_files:
         raise FileNotFoundError("No wiki_pageviews files found in data/")
-    wiki_pageviews_latest = max(wiki_pageviews_files, key=lambda f: f.split("_")[2])
-    wiki_pageviews = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
+    wiki_pageviews = pd.read_csv(_latest(wiki_pageviews_files), parse_dates=['Date'])
 
     ffr_files = glob.glob('data/ffr_*.csv')
     if not ffr_files:
         raise FileNotFoundError("No ffr files found in data/")
-    ffr_latest = max(ffr_files, key=lambda f: f.split("_")[1])
-    ffr = pd.read_csv(ffr_latest, parse_dates=['Date'])
+    ffr = pd.read_csv(_latest(ffr_files), parse_dates=['Date'])
 
     weather_files = glob.glob('data/weather_*.csv')
     if not weather_files:
         raise FileNotFoundError("No weather files found in data/")
-    weather_latest = max(weather_files, key=lambda f: f.split("_")[2])
-    weather = pd.read_csv(weather_latest, parse_dates=['date'])
+    weather = pd.read_csv(_latest(weather_files), parse_dates=['date'])
 
     gt_adjusted_files = glob.glob('data/gt_adjusted_*.csv')
     if not gt_adjusted_files:
         raise FileNotFoundError("No gt_adjusted files found in data/")
-    gt_adjusted_latest = max(gt_adjusted_files, key=lambda f: f.split("_")[2])
-    gt_adjusted = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
+    gt_adjusted = pd.read_csv(_latest(gt_adjusted_files), parse_dates=['date'])
 
-    return stocks_df_raw, wiki_pageviews, ffr, weather, gt_adjusted
+    vix_yields_files = glob.glob('data/vix_yields_*.csv')
+    if not vix_yields_files:
+        raise FileNotFoundError("No vix_yields files found in data/")
+    vix_yields = pd.read_csv(_latest(vix_yields_files), parse_dates=['Date'])
+
+    sp_df_files = glob.glob('data/sp_df_*.csv')
+    if not sp_df_files:
+        raise FileNotFoundError("No sp_df files found in data/")
+    sp_df = pd.read_csv(_latest(sp_df_files))
+
+    sector_etfs_files = glob.glob('data/sector_etfs_*.csv')
+    if not sector_etfs_files:
+        raise FileNotFoundError("No sector_etfs files found in data/")
+    sector_etfs = pd.read_csv(_latest(sector_etfs_files), parse_dates=['Date'])
+
+    return stocks_df_raw, wiki_pageviews, ffr, weather, gt_adjusted, vix_yields, sp_df, sector_etfs
 
 # Technical indicators
-def calculate_rsi_wide(data, target, ticker, window):
+def calculate_rsi(data, target, ticker, window):
     """
     Calculate the Relative Strength Index (RSI).
-    
+
     Parameters:
         data (DataFrame): Stock data with target prices.
         target (str): column to predict (usually Adj Close)
         ticker (str): Stock ticker
         window (int): Lookback period for RSI.
-        
+
     Returns:
         Series: RSI values.
     """
@@ -108,30 +122,7 @@ def calculate_rsi_wide(data, target, ticker, window):
 
     return 100 - (100 / (1 + rs))
 
-def calculate_rsi_long(data, target, window):
-    """
-    Calculate the Relative Strength Index (RSI).
-    
-    Parameters:
-        data (DataFrame): Stock data with target prices.
-        target (str): column to predict (usually Adj Close)
-        window (int): Lookback period for RSI.
-        
-    Returns:
-        Series: RSI values.
-    """
-    delta = data[target].diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-
-    avg_gain = pd.Series(gain).rolling(window=window).mean()
-    avg_loss = pd.Series(loss).rolling(window=window).mean()
-
-    rs = avg_gain / avg_loss
-
-    return 100 - (100 / (1 + rs))
-
-def calculate_vwap_wide(data, target, ticker):
+def calculate_vwap(data, target, ticker):
     """
     Calculate Volume Weighted Average Price
 
@@ -147,24 +138,9 @@ def calculate_vwap_wide(data, target, ticker):
     cumulative_price_volume = (data[target+"_"+ticker] * data["Volume_"+ticker]).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_vwap_long(data, target):
-    """
-    Calculate Volume Weighted Average Price
-
-    Parameters:
-        data (DataFrame): Stock data with required columns.
-        target (str): column to predict (usually Adj Close)
-
-    Returns:
-       
-    """
-    cumulative_volume = data['Volume'].cumsum()
-    cumulative_price_volume = (data[target] * data['Volume']).cumsum()
-    return cumulative_price_volume / cumulative_volume
-
 def calculate_technical_indicators(data, config: IndicatorConfig):
     """
-    Calculate technical indicators for the dataset (uses wide functions).
+    Calculate technical indicators for the dataset.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
@@ -175,7 +151,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
     """
     data = data.copy()
     target_ticker = config.target+"_"+config.ticker
-    data['RSI'] = calculate_rsi_wide(data, config.target, config.ticker, window=config.rsi_window)
+    data['RSI'] = calculate_rsi(data, config.target, config.ticker, window=config.rsi_window)
     data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
     data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
     data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
@@ -185,7 +161,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
     data['Bollinger_Lower'] = (data['MA_B'] -
                                config.bollinger.num_std *
                                data[target_ticker].rolling(window=config.bollinger.window).std())
-    data['VWAP'] = calculate_vwap_wide(data, config.target, config.ticker)
+    data['VWAP'] = calculate_vwap(data, config.target, config.ticker)
 
     data['short_ema'] = data[target_ticker].ewm(span=config.macd.short_window, adjust=False).mean()
     data['long_ema'] = data[target_ticker].ewm(span=config.macd.long_window, adjust=False).mean()
@@ -245,7 +221,8 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
     return stocks_w
 
 def prep_data(
-        stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted,
+        stocks_df, wiki_pageviews, ffr_raw, weather, gt_adjusted, vix_yields,
+        sp_df, sector_etfs,
         config: IndicatorConfig, drop_tickers=None
 ):
     """
@@ -275,13 +252,40 @@ def prep_data(
     nyc = LocationInfo("New York City", "USA", "America/New_York", 40.7128, -74.0060)
     nyc_tz = pytz.timezone("America/New_York")
 
-    prepd_data['sunlight_nyc'] = prepd_data['Date'].apply(
-        lambda d: (sun(nyc.observer, date=d, tzinfo=nyc_tz)['sunset'] -
-                   sun(nyc.observer, date=d, tzinfo=nyc_tz)['sunrise']).total_seconds()
-    )
+    def _daylight_seconds(d):
+        s = sun(nyc.observer, date=d, tzinfo=nyc_tz)
+        return (s['sunset'] - s['sunrise']).total_seconds()
+
+    prepd_data['sunlight_nyc'] = prepd_data['Date'].apply(_daylight_seconds)
 
     # Federal funds rate
     prepd_data = prepd_data.merge(ffr_raw,on='Date',how='left')
+
+    # Sector ETF relative strength
+    sector_etf_map = {
+        'Information Technology': 'XLK', 'Health Care': 'XLV', 'Financials': 'XLF',
+        'Energy': 'XLE', 'Industrials': 'XLI', 'Consumer Discretionary': 'XLY',
+        'Consumer Staples': 'XLP', 'Materials': 'XLB', 'Real Estate': 'XLRE',
+        'Utilities': 'XLU', 'Communication Services': 'XLC',
+    }
+    ticker_sector = sp_df.loc[sp_df['Symbol'] == config.ticker, 'GICS Sector']
+    if not ticker_sector.empty and ticker_sector.iloc[0] in sector_etf_map:
+        etf = sector_etf_map[ticker_sector.iloc[0]]
+        etf_col = f'close_{etf}'
+        etf_returns = sector_etfs[['Date', etf_col]].copy()
+        etf_returns['sector_etf_return_prev_day'] = etf_returns[etf_col].pct_change().shift(1)
+        prepd_data = prepd_data.merge(etf_returns[['Date', 'sector_etf_return_prev_day']], on='Date', how='left')
+        # sector vs SPY: use Adj Close_SPY already in prepd_data as the broad market benchmark
+        prepd_data['sector_vs_spy_return'] = (
+            prepd_data['sector_etf_return_prev_day'] - prepd_data['Adj Close_SPY'].pct_change().shift(1)
+        )
+
+    # VIX and treasury yields
+    prepd_data = prepd_data.merge(vix_yields, on='Date', how='left')
+    prepd_data['vix_change_prev_day'] = prepd_data['vix_close'].pct_change().shift(1)
+    prepd_data['vix_pct_rank_252'] = (
+        prepd_data['vix_close'].rolling(252).rank(pct=True)
+    )
 
     # NYC weather (high and low temperature and precipitation)
     weather = weather.rename(columns={'date': 'Date'})
@@ -305,9 +309,9 @@ def prep_data(
 
     # Check for missing or duplicate dates after merging
     if prepd_data['Date'].isna().any():
-        print("Warning: Missing dates in prepd_data after merging.")
+        logging.warning("Missing dates in prepd_data after merging.")
     if prepd_data['Date'].duplicated().any():
-        print("Warning: Duplicate dates in prepd_data after merging.")
+        logging.warning("Duplicate dates in prepd_data after merging.")
 
     # Streaks
     prepd_data['yesterday_to_today'] = np.where(
@@ -319,6 +323,7 @@ def prep_data(
         (prepd_data['yesterday_to_today'] != prepd_data['yesterday_to_today'].shift(1)).cumsum()
     ).cumcount()+1
 
+    # streak0 = consecutive down-day count; streak1 = consecutive up-day count
     prepd_data['streak0'] = np.where(prepd_data['yesterday_to_today']==1,0,prepd_data['streak'])
     prepd_data['streak1'] = np.where(prepd_data['yesterday_to_today']==0,0,prepd_data['streak'])
 

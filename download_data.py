@@ -38,7 +38,7 @@ def load_existing_weather_data():
     weather_df_files = glob.glob('data/weather_df_*.csv')
     if not weather_df_files:
         raise FileNotFoundError("No existing weather data files found in data/weather_df_*.csv")
-    weather_df_latest = max(weather_df_files, key=lambda f: f.split("_")[2])
+    weather_df_latest = max(weather_df_files, key=lambda f: f.split("_")[-1])
     weather_df_loaded = pd.read_csv(weather_df_latest, parse_dates=['date'])
 
     return weather_df_loaded
@@ -54,6 +54,76 @@ def get_federal_funds_rate():
     build_ffr = build_ffr.resample('D').ffill()
     build_ffr = build_ffr.reset_index(names='Date')
     return build_ffr
+
+
+SECTOR_ETF_MAP = {
+    'Information Technology': 'XLK',
+    'Health Care': 'XLV',
+    'Financials': 'XLF',
+    'Energy': 'XLE',
+    'Industrials': 'XLI',
+    'Consumer Discretionary': 'XLY',
+    'Consumer Staples': 'XLP',
+    'Materials': 'XLB',
+    'Real Estate': 'XLRE',
+    'Utilities': 'XLU',
+    'Communication Services': 'XLC',
+}
+
+
+def get_sector_etf_data():
+    """
+    Get daily price data for the 11 SPDR sector ETFs.
+    Returns a DataFrame with columns: Date, and one 'close_<ETF>' column per sector.
+    Note: XLRE and XLC only go back to ~2015, all others to ~1999.
+    """
+    etf_frames = []
+    for etf in SECTOR_ETF_MAP.values():
+        data = yf.download(etf, start=START_DATE, end=TODAY_ISO_STR, auto_adjust=False, progress=False)
+        data.columns = data.columns.get_level_values(0)
+        etf_frames.append(data[['Close']].rename(columns={'Close': f'close_{etf}'}))
+
+    result = etf_frames[0].join(etf_frames[1:], how='outer')
+    result = result.resample('D').ffill()
+    result = result.reset_index(names='Date')
+    return result
+
+
+def get_vix_and_yields():
+    """
+    Get VIX (CBOE Volatility Index), VIX term structure, and Treasury yield data (10Y, 2Y).
+    VIX data is fetched via yfinance; yields via FRED.
+    Term structure tickers (VIX9D, VIX3M, VIX6M) are available from ~2015-01-01.
+    """
+    # VIX and term structure
+    vix_tickers = {'^VIX': 'vix_close', '^VIX9D': 'vix9d_close', '^VIX3M': 'vix3m_close', '^VIX6M': 'vix6m_close'}
+    vix_frames = []
+    for ticker, col_name in vix_tickers.items():
+        raw = yf.download(ticker, start=START_DATE, end=TODAY_ISO_STR, auto_adjust=False, progress=False)
+        raw.columns = raw.columns.get_level_values(0)
+        vix_frames.append(raw[['Close']].rename(columns={'Close': col_name}))
+
+    vix = vix_frames[0].join(vix_frames[1:], how='outer').resample('D').ffill()
+
+    # Treasury yields from FRED
+    fred = Fred(api_key=fred_api_key)
+    dgs10 = fred.get_series('DGS10').to_frame(name='yield_10y')
+    dgs2 = fred.get_series('DGS2').to_frame(name='yield_2y')
+
+    yields = dgs10.join(dgs2, how='outer')
+    # Pin today's date to the last known value (same pattern as get_federal_funds_rate)
+    # so ffill covers up to today without bfill filling early dates from the future.
+    yields.loc[TODAY_ISO_STR, 'yield_10y'] = yields['yield_10y'].dropna().iloc[-1]
+    yields.loc[TODAY_ISO_STR, 'yield_2y'] = yields['yield_2y'].dropna().iloc[-1]
+    yields = yields.resample('D').ffill()
+
+    result = vix.join(yields, how='outer')
+    result['yield_spread'] = result['yield_10y'] - result['yield_2y']
+    # VIX term structure slope: ratio > 1 = contango (calm), < 1 = backwardation (fear)
+    result['vix9d_to_vix'] = result['vix9d_close'] / result['vix_close']
+    result['vix_to_vix3m'] = result['vix_close'] / result['vix3m_close']
+    result = result.reset_index(names='Date')
+    return result
 
 
 def get_sp500_tickers():
@@ -127,7 +197,7 @@ def get_wikipedia_pageviews(sp_df):
     """
     Get daily wikipedia pageviews for each company
     """
-    wiki_edate=(date.today()-pd.Timedelta(days=1)).strftime('%Y%m%d') # yesterday
+    wiki_edate=(date.today()-timedelta(days=1)).strftime('%Y%m%d') # yesterday
 
     wiki_headers = {
         "User-Agent": wiki_user_agent
@@ -153,29 +223,29 @@ def get_wikipedia_pageviews(sp_df):
                 else:
                     items_df['ticker'] = sp_df.loc[sp_df['wiki_page']==page,'Symbol'].item()
             else:
-                print(f"'items' key missing in response for page: {page}")
+                logging.warning("'items' key missing in response for page: %s", page)
                 missing.append(page)
                 continue
 
         except requests.exceptions.RequestException as e:
-            print(f"Request error for {page}: {e}")
+            logging.warning("Request error for %s: %s", page, e)
             missing.append(page)
             continue
 
         except ValueError as e:
-            print(f"ValueError for page {page}: {e}")
+            logging.warning("ValueError for page %s: %s", page, e)
             missing.append(page)
             continue
 
         if len(items_df)==0:
-            print(f"wiki pageviews data frame empty: {page}")
+            logging.warning("Wiki pageviews data frame empty: %s", page)
             missing.append(page)
             continue
 
         dat.append(items_df)
 
     if missing:
-        print(f"Wikipedia pageviews missing for {len(missing)} pages: {missing}")
+        logging.warning("Wikipedia pageviews missing for %d pages: %s", len(missing), missing)
 
     build_wiki_pv = pd.concat(dat).reset_index(drop=True)
     build_wiki_pv['Date'] =  pd.to_datetime(build_wiki_pv['timestamp'], format='%Y%m%d%H')
@@ -264,8 +334,8 @@ def fetch_noaa_with_retry(params, headers):
         resp = requests.get(NOAA_BASE_URL, headers=headers, params=params, timeout=300)
         if resp.status_code == 200:
             return resp
-        print(f"Attempt {attempt} failed for {params['startdate']}: {resp.status_code}, {resp.text}")
-    print(f"All {len(delays)} attempts failed for {params['startdate']}. Skipping.")
+        logging.warning("Attempt %d failed for %s: %s %s", attempt, params['startdate'], resp.status_code, resp.text)
+    logging.error("All %d attempts failed for %s. Skipping.", len(delays), params['startdate'])
     return None
 
 
@@ -306,13 +376,13 @@ def get_noaa_weather(last_hist_date):
 
         resp = fetch_noaa_with_retry(params, headers)
         if resp is None:
-            break
+            continue
 
-        print(resp.status_code, row['start_date'])
+        logging.info("NOAA %s: %s", row['start_date'], resp.status_code)
         data = resp.json()
 
         if 'results' not in data:
-            print(f"No 'results' key in response for start date {row['start_date']} data: {data}")
+            logging.warning("No 'results' key in response for start date %s: %s", row['start_date'], data)
             continue
 
         for item in data['results']:
@@ -426,6 +496,14 @@ if __name__ == "__main__":
     ffr = get_federal_funds_rate()
     logging.info("FFR done: %d rows", len(ffr))
 
+    logging.info("Downloading VIX and treasury yields...")
+    vix_yields = get_vix_and_yields()
+    logging.info("VIX/yields done: %d rows", len(vix_yields))
+
+    logging.info("Downloading sector ETF data...")
+    sector_etfs = get_sector_etf_data()
+    logging.info("Sector ETFs done: %d rows", len(sector_etfs))
+
     logging.info("Downloading Wikipedia pageviews...")
     wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
     logging.info("Wikipedia pageviews done: %d rows", len(wiki_pageviews))
@@ -437,5 +515,7 @@ if __name__ == "__main__":
         'stocks_df': stocks_df,
         'os_df_days': os_df_days,
         'ffr': ffr,
-        'weather_df': weather_df
+        'weather_df': weather_df,
+        'vix_yields': vix_yields,
+        'sector_etfs': sector_etfs,
     })

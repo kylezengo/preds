@@ -2,18 +2,15 @@
 
 from unittest.mock import patch
 
-import numpy as np
 import pandas as pd
 import pytest
 
 import prep_data
 from prep_data import (
     IndicatorConfig,
-    calculate_rsi_long,
-    calculate_rsi_wide,
+    calculate_rsi,
     calculate_technical_indicators,
-    calculate_vwap_long,
-    calculate_vwap_wide,
+    calculate_vwap,
     gen_stocks_w,
 )
 
@@ -63,57 +60,29 @@ class TestLoadData:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class TestCalculateRsi:
-    """Tests for RSI calculation functions."""
+    """Tests for calculate_rsi."""
 
-    def _make_long_data(self, prices):
-        return pd.DataFrame({'price': prices})
-
-    def _make_wide_data(self, prices, ticker='SPY'):
+    def _make_data(self, prices, ticker='SPY'):
         return pd.DataFrame({f'Adj Close_{ticker}': prices, f'Volume_{ticker}': [1] * len(prices)})
 
-    def test_rsi_long_range_0_to_100(self):
+    def test_rsi_range_0_to_100(self):
         """RSI values should be between 0 and 100."""
         prices = [100, 101, 102, 101, 100, 99, 100, 101, 103, 104, 102, 101, 100, 99, 98]
-        data = self._make_long_data(prices)
-        rsi = calculate_rsi_long(data, 'price', window=5)
-        valid = rsi.dropna()
-        assert (valid >= 0).all() and (valid <= 100).all()
-
-    def test_rsi_wide_range_0_to_100(self):
-        """RSI values should be between 0 and 100 (wide format)."""
-        prices = [100, 101, 102, 101, 100, 99, 100, 101, 103, 104, 102, 101, 100, 99, 98]
-        data = self._make_wide_data(prices)
-        rsi = calculate_rsi_wide(data, 'Adj Close', 'SPY', window=5)
+        rsi = calculate_rsi(self._make_data(prices), 'Adj Close', 'SPY', window=5)
         valid = rsi.dropna()
         assert (valid >= 0).all() and (valid <= 100).all()
 
     def test_rsi_all_gains_approaches_100(self):
         """RSI should approach 100 when prices only go up."""
         prices = list(range(100, 140))  # 40 consecutive up days
-        data = self._make_long_data(prices)
-        rsi = calculate_rsi_long(data, 'price', window=5)
+        rsi = calculate_rsi(self._make_data(prices), 'Adj Close', 'SPY', window=5)
         assert rsi.dropna().iloc[-1] > 90
 
     def test_rsi_all_losses_approaches_0(self):
         """RSI should approach 0 when prices only go down."""
         prices = list(range(140, 100, -1))  # 40 consecutive down days
-        data = self._make_long_data(prices)
-        rsi = calculate_rsi_long(data, 'price', window=5)
+        rsi = calculate_rsi(self._make_data(prices), 'Adj Close', 'SPY', window=5)
         assert rsi.dropna().iloc[-1] < 10
-
-    def test_rsi_long_and_wide_agree(self):
-        """Wide and long RSI should produce the same values given the same prices."""
-        prices = [100, 102, 101, 103, 105, 104, 106, 107, 105, 103, 102, 104, 106, 108, 107]
-        long_data = self._make_long_data(prices)
-        wide_data = self._make_wide_data(prices)
-
-        rsi_long = calculate_rsi_long(long_data, 'price', window=5)
-        rsi_wide = calculate_rsi_wide(wide_data, 'Adj Close', 'SPY', window=5)
-
-        np.testing.assert_array_almost_equal(
-            rsi_long.dropna().values,
-            rsi_wide.dropna().values
-        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -121,26 +90,20 @@ class TestCalculateRsi:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class TestCalculateVwap:
-    """Tests for VWAP calculation functions."""
+    """Tests for calculate_vwap."""
 
-    def test_vwap_long_constant_price(self):
+    def test_vwap_constant_price(self):
         """VWAP should equal the price when price is constant."""
-        data = pd.DataFrame({'price': [100.0] * 5, 'Volume': [1000] * 5})
-        vwap = calculate_vwap_long(data, 'price')
-        assert (vwap == 100.0).all()
-
-    def test_vwap_wide_constant_price(self):
-        """VWAP should equal the price when price is constant (wide format)."""
         data = pd.DataFrame({'Adj Close_SPY': [200.0] * 5, 'Volume_SPY': [500] * 5})
-        vwap = calculate_vwap_wide(data, 'Adj Close', 'SPY')
+        vwap = calculate_vwap(data, 'Adj Close', 'SPY')
         assert (vwap == 200.0).all()
 
-    def test_vwap_long_weighted_correctly(self):
+    def test_vwap_weighted_correctly(self):
         """VWAP should weight higher-volume days more heavily."""
         # Day 1: price=100, volume=1; Day 2: price=200, volume=9
         # Cumulative after day 2: (100*1 + 200*9) / (1+9) = 1900/10 = 190
-        data = pd.DataFrame({'price': [100.0, 200.0], 'Volume': [1, 9]})
-        vwap = calculate_vwap_long(data, 'price')
+        data = pd.DataFrame({'Adj Close_SPY': [100.0, 200.0], 'Volume_SPY': [1, 9]})
+        vwap = calculate_vwap(data, 'Adj Close', 'SPY')
         assert vwap.iloc[-1] == pytest.approx(190.0)
 
 
@@ -268,21 +231,29 @@ class TestPrepDataTargetAndStreaks:
             'precipitation_PRCP_nyc': 0.0, 'precipitation_SNOW_nyc': 0.0,
         })
         gt = pd.DataFrame({'date': dates, 'search_term': 'SPY', 'index': 50.0})
-        return stocks, wiki, ffr, weather, gt
+        vix_yields = pd.DataFrame({
+            'Date': dates,
+            'vix_close': 20.0, 'vix9d_close': 18.0, 'vix3m_close': 21.0, 'vix6m_close': 22.0,
+            'yield_10y': 4.0, 'yield_2y': 3.5, 'yield_spread': 0.5,
+            'vix9d_to_vix': 18.0/20.0, 'vix_to_vix3m': 20.0/21.0,
+        })
+        sp_df = pd.DataFrame({'Symbol': ['SPY'], 'GICS Sector': [None]})
+        sector_etfs = pd.DataFrame({'Date': dates})
+        return stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs
 
     def test_target_is_1_when_next_day_up(self):
         """Target=1 when the next day's price is higher."""
         prices = [100.0, 105.0, 103.0] + [103.0] * 60
-        stocks, wiki, ffr, weather, gt = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, IndicatorConfig())
+        stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
+        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
         # Day 0: price=100, next=105 → up → Target=1
         assert result.loc[result['Adj Close_SPY'] == 100.0, 'Target'].iloc[0] == 1
 
     def test_target_is_0_when_next_day_down(self):
         """Target=0 when the next day's price is lower."""
         prices = [105.0, 100.0] + [100.0] * 61
-        stocks, wiki, ffr, weather, gt = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, IndicatorConfig())
+        stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
+        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
         # Day 0: price=105, next=100 → down → Target=0
         assert result.loc[result['Adj Close_SPY'] == 105.0, 'Target'].iloc[0] == 0
 
@@ -290,8 +261,8 @@ class TestPrepDataTargetAndStreaks:
         """Streak counter should reset to 1 when direction changes."""
         # 3 up days, then 1 down day
         prices = [100.0, 101.0, 102.0, 103.0, 102.0] + [102.0] * 58
-        stocks, wiki, ffr, weather, gt = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, IndicatorConfig())
+        stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
+        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
         result = result.sort_values('Date').reset_index(drop=True)
         # After the direction change on day 4 (down), streak should be 1
         assert result.loc[4, 'streak0'] == 1
@@ -299,8 +270,8 @@ class TestPrepDataTargetAndStreaks:
     def test_streak_increments_on_same_direction(self):
         """Streak counter should increment on consecutive same-direction days."""
         prices = [100.0, 101.0, 102.0, 103.0, 104.0] + [104.0] * 58
-        stocks, wiki, ffr, weather, gt = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, IndicatorConfig())
+        stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
+        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
         result = result.sort_values('Date').reset_index(drop=True)
         # Days 1-4 are all up, streak1 should be increasing
         assert result.loc[2, 'streak1'] > result.loc[1, 'streak1']

@@ -97,7 +97,7 @@ class TestGetWikipediaPageviews:
         assert 'GOOGL' in result['ticker'].iloc[0]
         assert 'GOOG' in result['ticker'].iloc[0]
 
-    def test_missing_pages_are_logged(self, capsys: pytest.CaptureFixture[str]):
+    def test_missing_pages_are_logged(self, caplog):
         sp_df = self._make_sp_df()
         mock_resp = MagicMock()
         mock_resp.raise_for_status.return_value = None
@@ -109,8 +109,7 @@ class TestGetWikipediaPageviews:
             except ValueError:
                 pass  # expected when dat is empty
 
-        captured = capsys.readouterr()
-        assert 'missing' in captured.out.lower() or 'items' in captured.out.lower()
+        assert any('missing' in r.message.lower() or 'items' in r.message.lower() for r in caplog.records)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
