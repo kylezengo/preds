@@ -13,6 +13,8 @@ app = Dash()
 
 # Load data
 stocks_df_files = glob.glob('data/stocks_df_*.csv')
+if not stocks_df_files:
+    raise FileNotFoundError("No stocks_df files found in data/")
 stocks_df_latest = max(stocks_df_files, key=lambda f: f.split("_")[2])
 stocks_df = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
@@ -23,7 +25,8 @@ app.layout = html.Div([
         html.Label("Ticker"),
         dcc.Input(
             id='ticker-input',
-            value='SPY'
+            value='SPY',
+            debounce=True
         ),
         html.Label(" Short Window"),
         dcc.Input(
@@ -93,6 +96,14 @@ def update_graph(
     """
     Update graph
     """
+    short_window = short_window or 10
+    long_window = long_window or 50
+    oversold = oversold or 30
+    overbought = overbought or 70
+    rsi_window = rsi_window or 14
+    bollinger_window = bollinger_window or 20
+    bollinger_num_std = bollinger_num_std or 2
+
     chart_df = stocks_df.loc[stocks_df['ticker']==ticker].reset_index(drop=True)
 
     # Daily prices with moving averages and RSI
@@ -101,12 +112,9 @@ def update_graph(
     chart_df['RSI'] = prep_data.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
 
     chart_df['MA_B'] = chart_df['Adj Close'].rolling(window=bollinger_window).mean()
-    chart_df['Bollinger_Upper'] = (chart_df['MA_B'] +
-                                   bollinger_num_std *
-                                   chart_df['Adj Close'].rolling(window=bollinger_window).std())
-    chart_df['Bollinger_Lower'] = (chart_df['MA_B'] -
-                                   bollinger_num_std *
-                                   chart_df['Adj Close'].rolling(window=bollinger_window).std())
+    bollinger_std = chart_df['Adj Close'].rolling(window=bollinger_window).std()
+    chart_df['Bollinger_Upper'] = chart_df['MA_B'] + bollinger_num_std * bollinger_std
+    chart_df['Bollinger_Lower'] = chart_df['MA_B'] - bollinger_num_std * bollinger_std
 
     fig_sub = make_subplots(rows=2, cols=1,
                             shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.7,0.3])
@@ -136,9 +144,6 @@ def update_graph(
     fig_sub.add_hline(y=overbought, line_dash="dash", line_color="red",
                       label={'text':f'Overbought ({overbought})','textposition':"end"},
                       row=2, col=1)
-
-    # fig_sub.update_layout(title=f'Daily {ticker} Adj Close',
-    #                       legend={'yanchor':"top",'y': 0.98,'xanchor':"left",'x':0.01})
 
     fig_sub.update_layout(title=f'Daily {ticker} Adj Close')
 

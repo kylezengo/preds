@@ -14,13 +14,6 @@ from pytrends.request import TrendReq
 from pytrends.exceptions import ResponseError
 import requests
 
-# Argument parsing
-parser = argparse.ArgumentParser(description='Download Google Trends data.')
-parser.add_argument('--keyword', type=str, help='Keyword to add for Google Trends data')
-args = parser.parse_args()
-
-new_keyword = args.keyword
-
 # Config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -51,9 +44,9 @@ def load_existing_data() -> tuple:
         gt_daily_latest = max(gt_daily_files, key=lambda f: f.split("_")[2])
         gt_daily_loaded = pd.read_csv(gt_daily_latest, parse_dates=['date'])
     else:
-        gt_daily_loaded = pd.DataFrame(columns=['date','index','isPartial','search_term','pytrends_params'])
+        gt_daily_loaded = pd.DataFrame(columns=['date','index','isPartial','search_term','pytrends_params','request_datetime'])
 
-    params_return_empty_df_files = glob.glob('params_return_empty_df_*.txt')
+    params_return_empty_df_files = glob.glob('data/params_return_empty_df_*.txt')
     if params_return_empty_df_files:
         params_return_empty_df_files_latest = max(params_return_empty_df_files, key=os.path.getctime)
         with open(params_return_empty_df_files_latest, "r", encoding="utf-8") as f:
@@ -129,7 +122,7 @@ def custom_retry(kw, pytrends, df_list, no_resp_list, rep_count):
     """
     Custom retry function to handle exceptions and retry the request.
 
-    Parameters::
+    Parameters:
         kw (str): Keyword to search for.
         pytrends (TrendReq): Pytrends object.
         df_list (list): List to store DataFrames.
@@ -226,7 +219,7 @@ def review_past_requests(my_kws, params_return_empty_df, gt_weekly, gt_daily) ->
             for s in params_return_empty_df
             if kw in s
         ]
-        params_return_empty_df_dict[kw] = [match.group(1) for match in extracted_dates]
+        params_return_empty_df_dict[kw] = [match.group(1) for match in extracted_dates if match]
 
     logging.info('Since 2004 there are %d week ranges', len(week_ranges))
     kw_wrc = {}
@@ -273,6 +266,11 @@ def main():
     """
     Main function to download Google Trends data
     """
+    parser = argparse.ArgumentParser(description='Download Google Trends data.')
+    parser.add_argument('--keyword', type=str, help='Keyword to add for Google Trends data')
+    args = parser.parse_args()
+    new_keyword = args.keyword
+
     today_yyyymmdd = datetime.today().strftime("%Y%m%d")
 
     gt_monthly_raw, gt_weekly_raw, gt_daily_raw, params_return_empty_df_raw = load_existing_data()
@@ -305,7 +303,6 @@ def main():
             )
             return
 
-    # Maybe I can remove duplicate logic if replace gt_daily_raw with gt_daily_raw_adj here
     kw_yrtd, kw_wrtd, params_return_empty_df_dict = review_past_requests(
         my_kws, params_return_empty_df_raw, gt_weekly_raw, gt_daily_raw
     )

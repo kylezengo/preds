@@ -1,4 +1,4 @@
-"""This module builds prepd_data"""
+"""This module builds prepd_data."""
 
 import glob
 from dataclasses import dataclass, field
@@ -52,22 +52,32 @@ def load_data():
     Load data from CSV files.
     """
     stocks_df_files = glob.glob('data/stocks_df_*.csv')
+    if not stocks_df_files:
+        raise FileNotFoundError("No stocks_df files found in data/")
     stocks_df_latest = max(stocks_df_files, key=lambda f: f.split("_")[2])
     stocks_df_raw = pd.read_csv(stocks_df_latest, parse_dates=['Date'])
 
     wiki_pageviews_files = glob.glob('data/wiki_pageviews_*.csv')
+    if not wiki_pageviews_files:
+        raise FileNotFoundError("No wiki_pageviews files found in data/")
     wiki_pageviews_latest = max(wiki_pageviews_files, key=lambda f: f.split("_")[2])
     wiki_pageviews = pd.read_csv(wiki_pageviews_latest, parse_dates=['Date'])
 
     ffr_files = glob.glob('data/ffr_*.csv')
+    if not ffr_files:
+        raise FileNotFoundError("No ffr files found in data/")
     ffr_latest = max(ffr_files, key=lambda f: f.split("_")[1])
     ffr = pd.read_csv(ffr_latest, parse_dates=['Date'])
 
     weather_files = glob.glob('data/weather_*.csv')
-    weather_latest = max(weather_files, key=lambda f: f.split("_")[1])
+    if not weather_files:
+        raise FileNotFoundError("No weather files found in data/")
+    weather_latest = max(weather_files, key=lambda f: f.split("_")[2])
     weather = pd.read_csv(weather_latest, parse_dates=['date'])
 
     gt_adjusted_files = glob.glob('data/gt_adjusted_*.csv')
+    if not gt_adjusted_files:
+        raise FileNotFoundError("No gt_adjusted files found in data/")
     gt_adjusted_latest = max(gt_adjusted_files, key=lambda f: f.split("_")[2])
     gt_adjusted = pd.read_csv(gt_adjusted_latest, parse_dates=['date'])
 
@@ -152,23 +162,6 @@ def calculate_vwap_long(data, target):
     cumulative_price_volume = (data[target] * data['Volume']).cumsum()
     return cumulative_price_volume / cumulative_volume
 
-def calculate_macd(data, short_period=12, long_period=26):
-    """
-    Calculate the MACD line (moving average convergence/divergence).
-    
-    Parameters:
-        data (DataFrame): Must contain a 'Close' price column.
-        short_period (int): Short-term EMA period (default=12).
-        long_period (int): Long-term EMA period (default=26).
-    
-    Returns:
-        Series: The MACD line.
-    """
-    short_ema = data['Close'].ewm(span=short_period, adjust=False).mean()
-    long_ema = data['Close'].ewm(span=long_period, adjust=False).mean()
-    macd_line = short_ema - long_ema
-    return macd_line
-
 def calculate_technical_indicators(data, config: IndicatorConfig):
     """
     Calculate technical indicators for the dataset (uses wide functions).
@@ -180,6 +173,7 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
     Returns:
         DataFrame: Original dataframe with technical indicators included 
     """
+    data = data.copy()
     target_ticker = config.target+"_"+config.ticker
     data['RSI'] = calculate_rsi_wide(data, config.target, config.ticker, window=config.rsi_window)
     data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
@@ -228,8 +222,9 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
     # Set up data frame for testing
     stocks_df['movement'] = stocks_df.groupby('ticker')['Adj Close'].diff() * stocks_df['Volume']
 
+    # wiki_pageviews is expected to already have 'views_prev_day' (lagged by 1 day in prep_data)
     stocks_df = stocks_df.merge(
-        wiki_pageviews[['Date','ticker','views']],how='left', on=['Date','ticker']
+        wiki_pageviews[['Date','ticker','views_prev_day']],how='left', on=['Date','ticker']
     )
 
     # Some companies have calss A, B, etc. stock. See sp_df for details. Choosing class A for now.
@@ -241,7 +236,7 @@ def gen_stocks_w(ticker, stocks_df, wiki_pageviews, drop_tickers=None):
     stocks_w = stocks_df.pivot(
         index='Date',
         columns='ticker',
-        values=['Open','High','Low','Close','Adj Close','Volume','movement','views']
+        values=['Open','High','Low','Close','Adj Close','Volume','movement','views_prev_day']
     )
 
     stocks_w.columns = ['_'.join(col).strip() for col in stocks_w.columns.values]
@@ -265,7 +260,16 @@ def prep_data(
     """
     target_ticker = config.target+"_"+config.ticker
 
-    prepd_data = gen_stocks_w(config.ticker, stocks_df, wiki_pageviews, drop_tickers)
+    # Wikipedia pageviews are available with a ~1-day API lag, so we shift the date
+    # forward by 1 day before passing to gen_stocks_w. The resulting pivot columns will be
+    # named 'views_prev_day_TICKER' rather than 'views_TICKER' to make this explicit:
+    # these are prior-day pageviews, not same-day. Using same-day views would introduce
+    # a data availability leak in live trading.
+    wiki_pageviews_lagged = wiki_pageviews.copy()
+    wiki_pageviews_lagged['Date'] = wiki_pageviews_lagged['Date'] + pd.Timedelta(days=1)
+    wiki_pageviews_lagged = wiki_pageviews_lagged.rename(columns={'views': 'views_prev_day'})
+
+    prepd_data = gen_stocks_w(config.ticker, stocks_df, wiki_pageviews_lagged, drop_tickers)
 
     # Sunlight
     nyc = LocationInfo("New York City", "USA", "America/New_York", 40.7128, -74.0060)
@@ -283,12 +287,19 @@ def prep_data(
     weather = weather.rename(columns={'date': 'Date'})
     prepd_data = prepd_data.merge(weather,on='Date',how='left')
 
-    # Google Trends
+    # Google Trends — same availability lag as Wikipedia pageviews. Daily/weekly GT data
+    # is not available in real-time, so we shift the date forward by 1 day before merging.
+    # Columns are renamed from 'index_<term>' to 'gt_prev_day_<term>' to make this explicit.
     gt_adjusted_pivot = gt_adjusted.pivot(index='date', columns='search_term',values=['index'])
 
     gt_adjusted_pivot.columns = ['_'.join(col).strip() for col in gt_adjusted_pivot.columns.values]
     gt_adjusted_pivot = gt_adjusted_pivot.reset_index().rename_axis(None, axis=1)
     gt_adjusted_pivot = gt_adjusted_pivot.rename(columns={'date': 'Date'})
+    gt_adjusted_pivot.columns = [
+        col.replace('index_', 'gt_prev_day_', 1) if col.startswith('index_') else col
+        for col in gt_adjusted_pivot.columns
+    ]
+    gt_adjusted_pivot['Date'] = gt_adjusted_pivot['Date'] + pd.Timedelta(days=1)
 
     prepd_data = prepd_data.merge(gt_adjusted_pivot,on='Date',how='left')
 

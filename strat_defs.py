@@ -95,7 +95,8 @@ def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
 
     data['Signal'] = data['Signal'].fillna(1)
 
-    score = best_pipeline.score(X_train, y_train)
+    # Walk-forward accuracy over the prediction period (not train score, which would be misleading)
+    score = (data.loc[pred_df.index, 'Signal'] == data.loc[pred_df.index, 'Target']).mean()
     model = best_pipeline.steps[-1][1]
 
     return data, model, score
@@ -142,8 +143,9 @@ def proba_loop(data, initial_train_period, best_pipeline, proba, retrain_days) -
 
     data['Signal'] = np.where(data['proba_1'].fillna(1) > proba, 1, 0)
 
+    # Walk-forward accuracy over the prediction period (not train score, which would be misleading)
+    score = (data.loc[proba_df.index, 'Signal'] == data.loc[proba_df.index, 'Target']).mean()
     model = best_pipeline.steps[-1][1]
-    score = best_pipeline.score(X_train, y_train)
 
     return data, model, score
 
@@ -202,6 +204,11 @@ def generic_sklearn_strategy(
             StandardScaler(),
             model_cls(**model_kwargs)
         )
+        # Strip pca__ params — pipeline has no PCA step for tree models
+        if isinstance(param_grid, list):
+            param_grid = [{k: v for k, v in pg.items() if not k.startswith('pca__')} for pg in param_grid]
+        else:
+            param_grid = {k: v for k, v in param_grid.items() if not k.startswith('pca__')}
 
     search = GridSearchCV(pipeline, param_grid, cv=TimeSeriesSplit(), n_jobs=grid_search_n_jobs)
     search.fit(X_train, y_train)
@@ -476,7 +483,7 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **
 
         data, model, score = generic_sklearn_strategy(
             data, initial_train_period, MLPClassifier, param_grid,
-            retrain_days=config.retrain_days, proba_threshold=config.proba.svc,
+            retrain_days=config.retrain_days, proba_threshold=config.proba.mlp,
             grid_search_n_jobs=n_jobs,
             solver='lbfgs', random_state=random_state # **model_kwargs
         )
@@ -547,3 +554,81 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **
     data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
 
     return data, model, score
+
+
+def gen_powerset(some_list):
+    """
+    Generate all subsets of some_list.
+
+    Parameters:
+        some_list (list): List of items to generate subsets from.
+
+    Returns:
+        list: List of all subsets.
+    """
+    powerset = [[]]
+    for i in some_list:
+        powerset += [x + [i] for x in powerset]
+    return powerset
+
+
+def build_ensemble(strat_bds, mods, ticker, initial_train_period):
+    """
+    Build a model-of-models ensemble from a set of strategy results.
+
+    Combines predictions from multiple strategies by selecting the one with
+    the most confident prediction (furthest from 50%) for each day. Also
+    computes a conservative signal where all models must agree to go long.
+
+    Parameters:
+        strat_bds (dict): Dict of strategy name -> backtested DataFrame.
+        mods (list): Strategy names to combine (must all support proba_1).
+        ticker (str): Ticker being predicted.
+        initial_train_period (int): Index where live predictions begin.
+
+    Returns:
+        DataFrame: Combined results with Signal, Strategy_Return, Signal_all0,
+                   Strategy_Return_all0, and proba columns.
+    """
+    if ticker == "SPY":
+        df_prev = strat_bds[mods[0]][['Date', 'Daily_Return', 'Target', 'proba_1', 'Signal']]
+    else:
+        df_prev = strat_bds[mods[0]][['Date', 'Daily_Return_SPY', 'Daily_Return', 'Target', 'proba_1', 'Signal']]
+
+    df_prev = df_prev.rename(columns={'proba_1': 'proba_1' + mods[0], 'Signal': 'Signal_' + mods[0]})
+
+    mod_mod = df_prev  # will be overwritten if len(mods) > 1
+    for i in mods[1:]:
+        mod_mod = strat_bds[i][['Date', 'proba_1', 'Signal']].rename(
+            columns={'proba_1': 'proba_1' + i, 'Signal': 'Signal_' + i}
+        )
+        mod_mod = mod_mod.merge(df_prev, on='Date')
+        df_prev = mod_mod
+
+    # Conservative signal: only go long if ALL models agree
+    signal_columns = mod_mod.columns[mod_mod.columns.str.contains('Signal')]
+    mod_mod['Signal_all0'] = np.where(mod_mod[signal_columns].eq(0).all(axis=1), 0, 1)
+    mod_mod['Strategy_Return_all0'] = mod_mod['Signal_all0'].shift(1) * mod_mod['Daily_Return']
+
+    # Most confident signal: use the model furthest from 50% probability
+    proba_cols = [col for col in mod_mod.columns if col.startswith('proba_1')]
+    for i in proba_cols:
+        mod_mod['dist_' + i] = abs(mod_mod[i] - 0.5)
+
+    dist_cols = [col for col in mod_mod.columns if col.startswith('dist_')]
+    mask = mod_mod[dist_cols].notna().any(axis=1)
+    mod_mod.loc[mask, 'proba_1max_col'] = mod_mod.loc[mask, dist_cols].idxmax(axis=1, skipna=True)
+    mod_mod['proba_1max_col'] = mod_mod['proba_1max_col'].str.replace('dist_', '')
+
+    mod_mod['proba_1max'] = mod_mod.apply(
+        lambda row: row[row['proba_1max_col']] if pd.notnull(row['proba_1max_col']) else 1, axis=1
+    )
+    mod_mod['Signal'] = mod_mod['proba_1max'].round()
+    mod_mod['Strategy_Return'] = mod_mod['Signal'].shift(1) * mod_mod['Daily_Return']
+
+    if ticker != 'SPY':
+        mod_mod.loc[:initial_train_period, 'Strategy_Return'] = mod_mod['Daily_Return_SPY']
+
+    mod_mod.loc[0, 'Strategy_Return'] = np.nan
+
+    return mod_mod
