@@ -1,4 +1,4 @@
-"""This module builds prepd_data."""
+"""This module builds prepd_data"""
 
 import glob
 from dataclasses import dataclass, field

@@ -1,6 +1,7 @@
 """This module downloads the data necessary to test different strategies"""
 
 import glob
+import logging
 import os
 import time
 import urllib.parse
@@ -11,6 +12,8 @@ import requests
 import yfinance as yf
 from dotenv import load_dotenv
 from fredapi import Fred
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Authentication
 load_dotenv()
@@ -183,8 +186,10 @@ def get_stocks_data(sp500_tickers):
     """
     Get daily stock price data for each S&P 500 company using yfinance
     """
+    tickers_list = list(sp500_tickers)
     dat_list = []
-    for i in list(sp500_tickers):
+    for idx, i in enumerate(tickers_list, start=1):
+        logging.info("Stocks %d/%d: %s", idx, len(tickers_list), i)
         data = yf.download(
             i,
             start=START_DATE,
@@ -399,14 +404,33 @@ def save_data_to_csv(dic_of_dfs):
 
 
 if __name__ == "__main__":
+    logging.info("Starting data download")
+
+    logging.info("Fetching S&P 500 ticker list...")
     sp500_dataframe = get_sp500_tickers()
+    logging.info("Got %d tickers", len(sp500_dataframe))
 
+    logging.info("Downloading stock price data (this takes a while)...")
     stocks_df = get_stocks_data(sp500_dataframe['Symbol'])
-    os_df_days = get_outstanding_shares(sp500_dataframe['Symbol'])
-    weather_df = get_weather_data()
-    ffr = get_federal_funds_rate()
-    wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
+    logging.info("Stock data done: %d rows", len(stocks_df))
 
+    logging.info("Downloading outstanding shares...")
+    os_df_days = get_outstanding_shares(sp500_dataframe['Symbol'])
+    logging.info("Outstanding shares done: %d rows", len(os_df_days))
+
+    logging.info("Downloading weather data...")
+    weather_df = get_weather_data()
+    logging.info("Weather data done: %d rows", len(weather_df))
+
+    logging.info("Downloading federal funds rate...")
+    ffr = get_federal_funds_rate()
+    logging.info("FFR done: %d rows", len(ffr))
+
+    logging.info("Downloading Wikipedia pageviews...")
+    wiki_pageviews = get_wikipedia_pageviews(sp500_dataframe)
+    logging.info("Wikipedia pageviews done: %d rows", len(wiki_pageviews))
+
+    logging.info("Saving to CSV...")
     save_data_to_csv({
         'sp_df': sp500_dataframe,
         'wiki_pageviews': wiki_pageviews,
