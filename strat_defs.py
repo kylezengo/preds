@@ -48,7 +48,6 @@ class BacktestConfig:
     Backtest configuration class
     """
     overbought: int = 70 # RSI overbought threshold
-    bko_window: int = 20
     retrain_days: int = 1
     proba: ProbaConfig = field(default_factory=ProbaConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
@@ -395,15 +394,13 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **
         "pca__n_components": [0.6, 0.7, 0.8, 0.9],
     }
 
-    target_ticker = target+"_"+ticker
-
     # Strategies
     if strategy == "Hold":
         data['Signal'] = 1
 
     elif strategy == "SMA":
         data['Signal'] = 1
-        data.loc[data['MA_S'] <= data['MA_L'], 'Signal'] = 0
+        data.loc[data['ma_crossover'] <= 0, 'Signal'] = 0
 
     elif strategy == 'RSI':
         data['Signal'] = 1
@@ -411,17 +408,15 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **
 
     elif strategy == 'VWAP':
         data['Signal'] = 1
-        data.loc[data[target_ticker] > data['VWAP'], 'Signal'] = 0
+        data.loc[data['price_vs_vwap'] > 0, 'Signal'] = 0
 
     elif strategy == 'Bollinger':
         data['Signal'] = 1
-        data.loc[data[target_ticker] > data['Bollinger_Upper'], 'Signal'] = 0
+        data.loc[data['bollinger_pct_b'] > 1, 'Signal'] = 0
 
     elif strategy == 'Breakout':
-        data['High_Max'] = data['High_'+ticker].rolling(window=config.bko_window).max().shift(1)
-        data['Low_Min'] = data['Low_'+ticker].rolling(window=config.bko_window).min().shift(1)
         data['Signal'] = 1
-        data.loc[data[target_ticker] < data['Low_Min'], 'Signal'] = 0
+        data.loc[data['breakout_pct'] < 0, 'Signal'] = 0
 
     # sklearn strategies (+ XGBoost)
     elif strategy == "GradientBoosting":

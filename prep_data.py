@@ -43,6 +43,12 @@ class IndicatorConfig:
     target: str = 'Adj Close'
     ticker: str = 'SPY'
     rsi_window: int = 30
+    vwap_window: int = 60   # rolling window for VWAP (days)
+    bko_window: int = 20    # rolling window for breakout high/low range (days)
+    # Day-of-week dummies were top features in XGBoost importance (2026-03-26) but likely
+    # spurious — model was trading on day-of-week cycles rather than market signal.
+    # Disabled by default; re-enable to test if useful for a specific model/context.
+    include_day_of_week: bool = False
     moving_average: MovingAverageConfig = field(default_factory=MovingAverageConfig)
     bollinger: BollingerConfig = field(default_factory=BollingerConfig)
     macd: MACDConfig = field(default_factory=MACDConfig)
@@ -122,21 +128,29 @@ def calculate_rsi(data, target, ticker, window):
 
     return 100 - (100 / (1 + rs))
 
-def calculate_vwap(data, target, ticker):
+def calculate_vwap(data, target, ticker, window=60):
     """
-    Calculate Volume Weighted Average Price
+    Calculate rolling Volume Weighted Average Price.
+
+    Uses a rolling window (default 60 days) rather than a cumulative sum from
+    the start of the dataset. A cumulative VWAP over a 10-year dataset becomes
+    correlated with the absolute price level (VIF ~154), making it a redundant
+    feature. A rolling VWAP captures near-term volume-weighted positioning instead.
 
     Parameters:
         data (DataFrame): Stock data with required columns.
         target (str): column to predict (usually Adj Close)
         ticker (str): Stock ticker
+        window (int): Rolling window in days. Default 60.
 
     Returns:
         Series: VWAP values.
     """
-    cumulative_volume = data["Volume_"+ticker].cumsum()
-    cumulative_price_volume = (data[target+"_"+ticker] * data["Volume_"+ticker]).cumsum()
-    return cumulative_price_volume / cumulative_volume
+    price_volume = data[target + "_" + ticker] * data["Volume_" + ticker]
+    return (
+        price_volume.rolling(window=window, min_periods=1).sum()
+        / data["Volume_" + ticker].rolling(window=window, min_periods=1).sum()
+    )
 
 def calculate_technical_indicators(data, config: IndicatorConfig):
     """
@@ -151,21 +165,53 @@ def calculate_technical_indicators(data, config: IndicatorConfig):
     """
     data = data.copy()
     target_ticker = config.target+"_"+config.ticker
+    price = data[target_ticker]
+
     data['RSI'] = calculate_rsi(data, config.target, config.ticker, window=config.rsi_window)
-    data['MA_S'] = data[target_ticker].rolling(window=config.moving_average.short_window).mean()
-    data['MA_L'] = data[target_ticker].rolling(window=config.moving_average.long_window).mean()
-    data['MA_B'] = data[target_ticker].rolling(window=config.bollinger.window).mean()
+    data['MA_S'] = price.rolling(window=config.moving_average.short_window).mean()
+    data['MA_L'] = price.rolling(window=config.moving_average.long_window).mean()
+    data['MA_B'] = price.rolling(window=config.bollinger.window).mean()
     data['Bollinger_Upper'] = (data['MA_B'] +
                                config.bollinger.num_std *
-                               data[target_ticker].rolling(window=config.bollinger.window).std())
+                               price.rolling(window=config.bollinger.window).std())
     data['Bollinger_Lower'] = (data['MA_B'] -
                                config.bollinger.num_std *
-                               data[target_ticker].rolling(window=config.bollinger.window).std())
-    data['VWAP'] = calculate_vwap(data, config.target, config.ticker)
-
-    data['short_ema'] = data[target_ticker].ewm(span=config.macd.short_window, adjust=False).mean()
-    data['long_ema'] = data[target_ticker].ewm(span=config.macd.long_window, adjust=False).mean()
+                               price.rolling(window=config.bollinger.window).std())
+    data['VWAP'] = calculate_vwap(data, config.target, config.ticker, window=config.vwap_window)
+    data['short_ema'] = price.ewm(span=config.macd.short_window, adjust=False).mean()
+    data['long_ema'] = price.ewm(span=config.macd.long_window, adjust=False).mean()
     data['macd_line'] = data['short_ema'] - data['long_ema']
+
+    # ── Multicollinearity reduction ───────────────────────────────────────────
+    # MA_S, MA_L, MA_B, Bollinger_Upper/Lower, VWAP, short_ema, long_ema are all
+    # rolling windows of the same price series → VIF = inf (perfectly collinear).
+    # macd_line is an absolute dollar difference that also scales with price → VIF ~3e15.
+    # Replace all with ratios that capture relative position without the collinearity.
+    # SMA/VWAP/Bollinger strategies in strat_defs.py use the ratio columns directly.
+    # See "Multicollinearity Audit" in Exploratory data analysis.ipynb.
+    data['price_vs_ma_s']   = price / data['MA_S'] - 1          # above/below short MA
+    data['ma_crossover']    = data['MA_S'] / data['MA_L'] - 1   # SMA crossover signal
+    data['bollinger_pct_b'] = (                                  # %B: 0=lower, 1=upper band
+        (price - data['Bollinger_Lower']) /
+        (data['Bollinger_Upper'] - data['Bollinger_Lower'])
+    )
+    data['price_vs_vwap']   = price / data['VWAP'] - 1          # above/below VWAP
+    data['macd_pct']        = data['macd_line'] / data['long_ema']  # MACD / price scale
+
+    data = data.drop(columns=['MA_S', 'MA_L', 'MA_B', 'Bollinger_Upper', 'Bollinger_Lower',
+                               'VWAP', 'short_ema', 'long_ema', 'macd_line'])
+
+    # Breakout feature: position within recent high/low range (stochastic-style %K).
+    # < 0: price below recent low (bearish breakout); > 1: above recent high (bullish).
+    # Precomputed here so the Breakout strategy doesn't need Adj Close_{ticker} at
+    # backtest time, allowing the raw price level to be dropped from the feature set.
+    # Skipped when High/Low columns are absent (e.g. unit tests).
+    high_col = 'High_' + config.ticker
+    low_col  = 'Low_'  + config.ticker
+    if high_col in data.columns and low_col in data.columns:
+        rolling_high = data[high_col].rolling(window=config.bko_window).max()
+        rolling_low  = data[low_col].rolling(window=config.bko_window).min()
+        data['breakout_pct'] = (price - rolling_low) / (rolling_high - rolling_low)
 
     return data
 
@@ -274,11 +320,12 @@ def prep_data(
         etf_col = f'close_{etf}'
         etf_returns = sector_etfs[['Date', etf_col]].copy()
         etf_returns['sector_etf_return_prev_day'] = etf_returns[etf_col].pct_change().shift(1)
-        prepd_data = prepd_data.merge(etf_returns[['Date', 'sector_etf_return_prev_day']], on='Date', how='left')
-        # sector vs SPY: use Adj Close_SPY already in prepd_data as the broad market benchmark
-        prepd_data['sector_vs_spy_return'] = (
-            prepd_data['sector_etf_return_prev_day'] - prepd_data['Adj Close_SPY'].pct_change().shift(1)
+        prepd_data = prepd_data.merge(
+            etf_returns[['Date', 'sector_etf_return_prev_day']], on='Date', how='left'
         )
+        # sector vs SPY: use Adj Close_SPY already in prepd_data as the broad market benchmark
+        spy_return = prepd_data['Adj Close_SPY'].pct_change().shift(1)
+        prepd_data['sector_vs_spy_return'] = prepd_data['sector_etf_return_prev_day'] - spy_return
 
     # VIX and treasury yields
     prepd_data = prepd_data.merge(vix_yields, on='Date', how='left')
@@ -286,10 +333,23 @@ def prep_data(
     prepd_data['vix_pct_rank_252'] = (
         prepd_data['vix_close'].rolling(252).rank(pct=True)
     )
+    # Drop raw VIX levels (VIF: vix_close=5327, vix3m_close=4977, vix6m_close=3424,
+    # vix9d_close=1264) — term structure ratios (vix9d_to_vix, vix_to_vix3m) and
+    # vix_pct_rank_252 capture the same information without the collinearity.
+    # Also drop vix_to_vix3m (VIF=357) — it is correlated 0.72 with vix9d_to_vix
+    # and 0.77 with vix_pct_rank_252; vix9d_to_vix is the more near-term signal.
+    # See "Multicollinearity Audit" in Exploratory data analysis.ipynb.
+    prepd_data = prepd_data.drop(
+        columns=['vix_close', 'vix9d_close', 'vix3m_close', 'vix6m_close', 'vix_to_vix3m']
+    )
 
     # NYC weather (high and low temperature and precipitation)
     weather = weather.rename(columns={'date': 'Date'})
-    prepd_data = prepd_data.merge(weather,on='Date',how='left')
+    prepd_data = prepd_data.merge(weather, on='Date', how='left')
+    # Drop redundant weather features (VIF: high_temp_nyc=56, low_temp_nyc=28) —
+    # all three weather columns are seasonal proxies; sunlight_nyc is the primary signal.
+    # See "Multicollinearity Audit" in Exploratory data analysis.ipynb.
+    prepd_data = prepd_data.drop(columns=['high_temp_nyc', 'low_temp_nyc'])
 
     # Google Trends — same availability lag as Wikipedia pageviews. Daily/weekly GT data
     # is not available in real-time, so we shift the date forward by 1 day before merging.
@@ -336,11 +396,11 @@ def prep_data(
     if target_ticker != 'Adj Close_SPY':
         prepd_data['Daily_Return_SPY'] = prepd_data['Adj Close_SPY'].pct_change()
 
-    # Day of week
-    prepd_data['day_of_week_name'] = prepd_data['Date'].dt.day_name()
-
-    prepd_data = pd.get_dummies(prepd_data, columns=['day_of_week_name'],
-                                drop_first=True, dtype=int)
+    # Day of week (disabled by default — see IndicatorConfig.include_day_of_week)
+    if config.include_day_of_week:
+        prepd_data['day_of_week_name'] = prepd_data['Date'].dt.day_name()
+        prepd_data = pd.get_dummies(prepd_data, columns=['day_of_week_name'],
+                                    drop_first=True, dtype=int)
 
     # Calculate Target column
     prepd_data = prepd_data.sort_values(by='Date').reset_index(drop=True)
@@ -348,4 +408,63 @@ def prep_data(
         (prepd_data[target_ticker].shift(-1) - prepd_data[target_ticker]) < 0, 0, 1
     )
 
+    # Drop raw price levels (VIF: target ~260, Adj Close_SPY ~168).
+    # Relative position is captured by price_vs_ma_s, price_vs_vwap, bollinger_pct_b,
+    # breakout_pct. Daily_Return and Target (computed above) are the only downstream uses.
+    # See "Multicollinearity Audit" in Exploratory data analysis.ipynb.
+    adj_close_cols = [c for c in prepd_data.columns if c.startswith('Adj Close_')]
+    prepd_data = prepd_data.drop(columns=adj_close_cols)
+
     return prepd_data
+
+
+def resample_to_weekly(daily_df: pd.DataFrame, return_col: str = 'Daily_Return') -> pd.DataFrame:
+    """
+    Resample a daily prep_data() output to weekly bars (last trading day of each
+    calendar week, typically Friday).
+
+    Most features take their end-of-week value. Daily_Return / Daily_Return_SPY
+    are replaced with the cumulative return for the week. streak0/streak1 and
+    Target are recomputed on weekly bars.
+
+    The input daily_df is not modified.
+
+    Parameters:
+        daily_df: Output of prep_data().
+        return_col: Column used to determine weekly direction (default 'Daily_Return').
+
+    Returns:
+        DataFrame with the same columns as daily_df, resampled to weekly frequency.
+    """
+    df = daily_df.copy().set_index('Date').sort_index()
+
+    return_cols = [c for c in ['Daily_Return', 'Daily_Return_SPY'] if c in df.columns]
+    skip_cols = return_cols + ['streak0', 'streak1', 'Target']
+    other_cols = [c for c in df.columns if c not in skip_cols]
+
+    # End-of-week value for all non-return features
+    weekly = df[other_cols].resample('W-FRI').last()
+
+    # Cumulative return for the week: (1+r1)(1+r2)...(1+rN) - 1
+    # fillna(0) treats the first row's NaN return as 0% (no change)
+    for col in return_cols:
+        weekly[col] = (1 + df[col].fillna(0)).resample('W-FRI').prod() - 1
+
+    # Drop empty weeks (e.g. full-week market holidays)
+    weekly = weekly.dropna(how='all')
+
+    # Recompute streaks on weekly bars (same logic as daily streaks in prep_data)
+    direction = (weekly[return_col] >= 0).astype(int)
+    streak = weekly.groupby(
+        (direction != direction.shift(1)).cumsum()
+    ).cumcount() + 1
+    weekly['streak0'] = np.where(direction == 1, 0, streak)
+    weekly['streak1'] = np.where(direction == 0, 0, streak)
+
+    # Recompute Target: 1 if next week's return > 0
+    weekly['Target'] = (weekly[return_col].shift(-1) > 0).astype(int)
+    weekly.loc[weekly.index[-1], 'Target'] = pd.NA
+    weekly = weekly.dropna(subset=['Target'])
+    weekly['Target'] = weekly['Target'].astype(int)
+
+    return weekly.reset_index()

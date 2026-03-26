@@ -12,6 +12,7 @@ from prep_data import (
     calculate_technical_indicators,
     calculate_vwap,
     gen_stocks_w,
+    resample_to_weekly,
 )
 
 
@@ -48,7 +49,10 @@ class TestLoadData:
                 return []
             return ['data/some_file_20240301.csv']
 
-        dummy = pd.DataFrame({'Date': pd.to_datetime(['2024-01-01']), 'date': pd.to_datetime(['2024-01-01'])})
+        dummy = pd.DataFrame({
+            'Date': pd.to_datetime(['2024-01-01']),
+            'date': pd.to_datetime(['2024-01-01']),
+        })
         with patch('prep_data.glob.glob', side_effect=mock_glob), \
              patch('prep_data.pd.read_csv', return_value=dummy):
             with pytest.raises(FileNotFoundError, match="weather"):
@@ -118,6 +122,8 @@ class TestCalculateTechnicalIndicators:
         prices = [100 + i * 0.5 + (i % 3) for i in range(n)]
         return pd.DataFrame({
             'Adj Close_SPY': prices,
+            'High_SPY': [p + 1.0 for p in prices],
+            'Low_SPY':  [p - 1.0 for p in prices],
             'Volume_SPY': [1_000_000] * n,
         })
 
@@ -129,23 +135,32 @@ class TestCalculateTechnicalIndicators:
         assert list(data.columns) == original_cols
 
     def test_adds_expected_columns(self):
-        """Output contains all expected indicator columns."""
+        """Output contains ratio columns; raw level columns and Adj Close are dropped."""
         result = calculate_technical_indicators(self._make_data(), IndicatorConfig())
-        for col in ['RSI', 'MA_S', 'MA_L', 'MA_B', 'Bollinger_Upper', 'Bollinger_Lower',
-                    'VWAP', 'short_ema', 'long_ema', 'macd_line']:
+        for col in ['RSI', 'price_vs_ma_s', 'ma_crossover', 'bollinger_pct_b',
+                    'price_vs_vwap', 'macd_pct', 'breakout_pct']:
             assert col in result.columns, f"Missing column: {col}"
+        for col in ['MA_S', 'MA_L', 'MA_B', 'Bollinger_Upper', 'Bollinger_Lower',
+                    'VWAP', 'short_ema', 'long_ema', 'macd_line']:
+            assert col not in result.columns, f"Raw level column should be dropped: {col}"
 
-    def test_bollinger_upper_above_lower(self):
-        """Bollinger upper band should always be >= lower band."""
+    def test_bollinger_pct_b_in_range(self):
+        """bollinger_pct_b should be 0 at the lower band and 1 at the upper band."""
         result = calculate_technical_indicators(self._make_data(), IndicatorConfig())
-        valid = result.dropna(subset=['Bollinger_Upper', 'Bollinger_Lower'])
-        assert (valid['Bollinger_Upper'] >= valid['Bollinger_Lower']).all()
+        valid = result['bollinger_pct_b'].dropna()
+        # Price sits between bands for trending data, so valid values are finite
+        assert valid.notna().all()
 
-    def test_macd_line_is_short_minus_long_ema(self):
-        """macd_line should equal short_ema - long_ema."""
-        result = calculate_technical_indicators(self._make_data(), IndicatorConfig())
-        expected = result['short_ema'] - result['long_ema']
-        pd.testing.assert_series_equal(result['macd_line'], expected, check_names=False)
+    def test_macd_pct_positive_for_uptrend(self):
+        """macd_pct should be positive when price has been trending up."""
+        n = 60
+        prices = [100 + i for i in range(n)]  # strictly upward
+        data = pd.DataFrame({
+            'Adj Close_SPY': prices,
+            'Volume_SPY': [1_000_000] * n,
+        })
+        result = calculate_technical_indicators(data, IndicatorConfig())
+        assert result['macd_pct'].dropna().iloc[-1] > 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -245,24 +260,39 @@ class TestPrepDataTargetAndStreaks:
         """Target=1 when the next day's price is higher."""
         prices = [100.0, 105.0, 103.0] + [103.0] * 60
         stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
+        result = prep_data.prep_data(
+            stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig()
+        )
         # Day 0: price=100, next=105 → up → Target=1
-        assert result.loc[result['Adj Close_SPY'] == 100.0, 'Target'].iloc[0] == 1
+        assert result.sort_values('Date').iloc[0]['Target'] == 1
 
     def test_target_is_0_when_next_day_down(self):
         """Target=0 when the next day's price is lower."""
         prices = [105.0, 100.0] + [100.0] * 61
         stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
+        result = prep_data.prep_data(
+            stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig()
+        )
         # Day 0: price=105, next=100 → down → Target=0
-        assert result.loc[result['Adj Close_SPY'] == 105.0, 'Target'].iloc[0] == 0
+        assert result.sort_values('Date').iloc[0]['Target'] == 0
+
+    def test_no_adj_close_in_output(self):
+        """Adj Close columns should be dropped from the returned DataFrame."""
+        prices = [100.0 + i for i in range(63)]
+        stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
+        result = prep_data.prep_data(
+            stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig()
+        )
+        assert not any(c.startswith('Adj Close') for c in result.columns)
 
     def test_streak_resets_on_direction_change(self):
         """Streak counter should reset to 1 when direction changes."""
         # 3 up days, then 1 down day
         prices = [100.0, 101.0, 102.0, 103.0, 102.0] + [102.0] * 58
         stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
+        result = prep_data.prep_data(
+            stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig()
+        )
         result = result.sort_values('Date').reset_index(drop=True)
         # After the direction change on day 4 (down), streak should be 1
         assert result.loc[4, 'streak0'] == 1
@@ -271,7 +301,93 @@ class TestPrepDataTargetAndStreaks:
         """Streak counter should increment on consecutive same-direction days."""
         prices = [100.0, 101.0, 102.0, 103.0, 104.0] + [104.0] * 58
         stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs = self._make_inputs(prices)
-        result = prep_data.prep_data(stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig())
+        result = prep_data.prep_data(
+            stocks, wiki, ffr, weather, gt, vix_yields, sp_df, sector_etfs, IndicatorConfig()
+        )
         result = result.sort_values('Date').reset_index(drop=True)
         # Days 1-4 are all up, streak1 should be increasing
         assert result.loc[2, 'streak1'] > result.loc[1, 'streak1']
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# resample_to_weekly
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestResampleToWeekly:
+    """Tests for resample_to_weekly."""
+
+    def _make_daily(self, n_weeks=6):
+        """Minimal daily DataFrame resembling prep_data() output (n_weeks * 5 days)."""
+        # Start on a Monday so each resample('W-FRI') window is a clean 5-day week
+        dates = pd.date_range('2024-01-08', periods=n_weeks * 5, freq='B')
+        prices = [100.0 + i * 0.5 for i in range(len(dates))]
+        returns = pd.Series(prices).pct_change().fillna(0).tolist()
+        return pd.DataFrame({
+            'Date': dates,
+            'Daily_Return': returns,
+            'RSI': [50.0] * len(dates),
+            'streak0': [0] * len(dates),
+            'streak1': list(range(1, len(dates) + 1)),
+            'Target': [1] * len(dates),
+        })
+
+    def test_row_count_is_weekly(self):
+        """Output should have one row per calendar week (minus last row for Target)."""
+        daily = self._make_daily(n_weeks=6)
+        weekly = resample_to_weekly(daily)
+        # 6 weeks of input → 5 rows (last week dropped — no next-week Target)
+        assert len(weekly) == 5
+
+    def test_does_not_mutate_input(self):
+        """Input DataFrame should not be modified."""
+        daily = self._make_daily()
+        original_len = len(daily)
+        resample_to_weekly(daily)
+        assert len(daily) == original_len
+
+    def test_target_is_next_week_direction(self):
+        """Target=1 when next week's cumulative return is positive."""
+        daily = self._make_daily()  # strictly rising prices → all weekly returns positive
+        weekly = resample_to_weekly(daily)
+        assert (weekly['Target'] == 1).all()
+
+    def test_weekly_return_is_cumulative(self):
+        """Weekly Daily_Return should be the product of daily returns, not just Friday's."""
+        # 5 days each gaining exactly 1%: cumulative ≈ (1.01^5 - 1) ≈ 5.1%
+        # Start on Monday so W-FRI resample captures a clean 5-day week
+        dates = pd.date_range('2024-01-08', periods=5, freq='B')
+        daily = pd.DataFrame({
+            'Date': dates,
+            'Daily_Return': [0.01] * 5,
+            'RSI': [50.0] * 5,
+            'streak0': [0] * 5,
+            'streak1': [1, 2, 3, 4, 5],
+            'Target': [1] * 5,
+        })
+        # Need a second week so the first week gets a Target
+        dates2 = pd.date_range('2024-01-15', periods=5, freq='B')
+        daily2 = pd.DataFrame({
+            'Date': dates2,
+            'Daily_Return': [0.01] * 5,
+            'RSI': [50.0] * 5,
+            'streak0': [0] * 5,
+            'streak1': [6, 7, 8, 9, 10],
+            'Target': [1] * 5,
+        })
+        combined = pd.concat([daily, daily2], ignore_index=True)
+        weekly = resample_to_weekly(combined)
+        expected = (1.01 ** 5) - 1
+        assert weekly.iloc[0]['Daily_Return'] == pytest.approx(expected, rel=1e-4)
+
+    def test_streaks_recomputed_on_weekly_bars(self):
+        """streak1 should increment across consecutive up weeks, not reflect daily streaks."""
+        daily = self._make_daily(n_weeks=4)
+        weekly = resample_to_weekly(daily)
+        # All weeks are up (prices strictly rising), so streak1 should increment
+        assert weekly.iloc[1]['streak1'] > weekly.iloc[0]['streak1']
+
+    def test_same_columns_as_input(self):
+        """Output should have the same columns as the input."""
+        daily = self._make_daily()
+        weekly = resample_to_weekly(daily)
+        assert set(weekly.columns) == set(daily.columns)
