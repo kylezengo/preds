@@ -52,6 +52,7 @@ class BacktestConfig:
     retrain_days: int = 1
     proba: ProbaConfig = field(default_factory=ProbaConfig)
     keras: KerasConfig = field(default_factory=KerasConfig)
+    transaction_cost: float = 0.0 # fraction of trade value per transaction (e.g. 0.001 = 0.1%)
 
 # helper functions
 def pred_loop(data, initial_train_period, best_pipeline, retrain_days) -> tuple:
@@ -551,7 +552,9 @@ def backtest_strategy(data, strategy, target, ticker, config: BacktestConfig, **
     else:
         raise ValueError(f"Strategy '{strategy}' is not implemented.")
 
-    data['Strategy_Return'] = data['Signal'].shift(1) * data['Daily_Return']
+    signal_prev = data['Signal'].shift(1)
+    trade_occurs = signal_prev.diff().abs() > 0
+    data['Strategy_Return'] = signal_prev * data['Daily_Return'] - trade_occurs * config.transaction_cost
 
     return data, model, score
 
@@ -572,7 +575,7 @@ def gen_powerset(some_list):
     return powerset
 
 
-def build_ensemble(strat_bds, mods, ticker, initial_train_period):
+def build_ensemble(strat_bds, mods, ticker, initial_train_period, transaction_cost=0.0):
     """
     Build a model-of-models ensemble from a set of strategy results.
 
@@ -608,7 +611,9 @@ def build_ensemble(strat_bds, mods, ticker, initial_train_period):
     # Conservative signal: only go long if ALL models agree
     signal_columns = mod_mod.columns[mod_mod.columns.str.contains('Signal')]
     mod_mod['Signal_all0'] = np.where(mod_mod[signal_columns].eq(0).all(axis=1), 0, 1)
-    mod_mod['Strategy_Return_all0'] = mod_mod['Signal_all0'].shift(1) * mod_mod['Daily_Return']
+    signal_all0_prev = mod_mod['Signal_all0'].shift(1)
+    trade_occurs_all0 = signal_all0_prev.diff().abs() > 0
+    mod_mod['Strategy_Return_all0'] = signal_all0_prev * mod_mod['Daily_Return'] - trade_occurs_all0 * transaction_cost
 
     # Most confident signal: use the model furthest from 50% probability
     proba_cols = [col for col in mod_mod.columns if col.startswith('proba_1')]
@@ -624,7 +629,9 @@ def build_ensemble(strat_bds, mods, ticker, initial_train_period):
         lambda row: row[row['proba_1max_col']] if pd.notnull(row['proba_1max_col']) else 1, axis=1
     )
     mod_mod['Signal'] = mod_mod['proba_1max'].round()
-    mod_mod['Strategy_Return'] = mod_mod['Signal'].shift(1) * mod_mod['Daily_Return']
+    signal_prev = mod_mod['Signal'].shift(1)
+    trade_occurs = signal_prev.diff().abs() > 0
+    mod_mod['Strategy_Return'] = signal_prev * mod_mod['Daily_Return'] - trade_occurs * transaction_cost
 
     if ticker != 'SPY':
         mod_mod.loc[:initial_train_period, 'Strategy_Return'] = mod_mod['Daily_Return_SPY']

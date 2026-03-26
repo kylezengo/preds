@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from dash import Dash, html, dcc, Output, Input
 
-import prep_data # custom functions
 
 app = Dash()
 
@@ -109,7 +108,10 @@ def update_graph(
     # Daily prices with moving averages and RSI
     chart_df['SMA_Short'] = chart_df['Adj Close'].rolling(window=short_window).mean()
     chart_df['SMA_Long'] = chart_df['Adj Close'].rolling(window=long_window).mean()
-    chart_df['RSI'] = prep_data.calculate_rsi_long(chart_df, 'Adj Close', window=rsi_window)
+    delta = chart_df['Adj Close'].diff()
+    avg_gain = delta.clip(lower=0).rolling(window=rsi_window).mean()
+    avg_loss = (-delta).clip(lower=0).rolling(window=rsi_window).mean()
+    chart_df['RSI'] = 100 - (100 / (1 + avg_gain / avg_loss))
 
     chart_df['MA_B'] = chart_df['Adj Close'].rolling(window=bollinger_window).mean()
     bollinger_std = chart_df['Adj Close'].rolling(window=bollinger_window).std()
