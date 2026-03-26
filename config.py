@@ -24,3 +24,25 @@ TRANSACTION_COST = 0.001
 
 # Reproducibility
 RANDOM_STATE = 42
+
+# Indicator parameters (shared defaults)
+MA_SHORT_WINDOW = 10
+MA_LONG_WINDOW = 50
+BOLLINGER_WINDOW = 90
+BOLLINGER_NUM_STD = 3.0
+MACD_SHORT_WINDOW = 12
+MACD_LONG_WINDOW = 26
+RSI_WINDOW = 30
+VWAP_WINDOW = 60
+BKO_WINDOW = 20
+
+# Keras parameters (shared defaults)
+KERAS_PROBA = 0.5
+KERAS_SEQUENCE_LENGTH = 30
+KERAS_EPOCHS = 20
+
+# Backtest parameters (shared defaults)
+RETRAIN_DAYS = 10
+
+# Visualization
+INITIAL_CAPITAL = 10000
